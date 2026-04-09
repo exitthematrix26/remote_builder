@@ -93,12 +93,15 @@ if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
 fi
 info "Cluster name '${CLUSTER_NAME}' is available — no conflict with existing clusters"
 
-# Warn about RAM if both other clusters are running
-RUNNING_KIND=$(docker ps --filter name=kind --format '{{.Names}}' | grep -v "${CLUSTER_NAME}" | wc -l)
+# Warn about RAM if other kind clusters are running
+# Use 'kind get clusters' — reliable, works regardless of Docker container naming conventions.
+# grep -vc returns 0 (count of non-matching lines); the || true prevents grep exit code 1
+# (no matches) from triggering set -e and silently killing the script.
+RUNNING_KIND=$(kind get clusters 2>/dev/null | grep -vc "^${CLUSTER_NAME}$" || true)
 if [[ "${RUNNING_KIND}" -gt 0 ]]; then
-  warn "You have ${RUNNING_KIND} other kind cluster(s) running."
+  warn "You have ${RUNNING_KIND} other kind cluster(s) running ($(kind get clusters 2>/dev/null | grep -v "^${CLUSTER_NAME}$" | tr '\n' ' ' || true))"
   warn "This is fine for Phase 1, but for later phases (Istio + Buildbarn) consider:"
-  warn "  docker stop \$(docker ps -q --filter name=kind-bazel-sim)"
+  warn "  docker stop \$(docker ps -q --filter name=bazel-sim)"
   warn "  to free ~350MB RAM before heavy workloads."
 fi
 
@@ -152,6 +155,14 @@ if [[ "${WORKER_NODES}" -ne 1 ]]; then
   error "Expected 1 worker node (pool=rbe-workers), found ${WORKER_NODES}. Check kind-config.yaml."
 fi
 info "Node topology verified: 1 infra node, 1 worker node"
+
+# Apply the rbe-worker taint via kubectl — NOT in kind-config.yaml.
+# The taints[] field in kubeadm JoinConfiguration v1beta3 is broken in K8s 1.31:
+# it prevents the node from ever appearing in the API server (registration timeout).
+# Applying the taint post-creation via kubectl is the reliable alternative.
+WORKER_NODE=$(kubectl get nodes -l pool=rbe-workers -o jsonpath='{.items[0].metadata.name}')
+kubectl taint nodes "${WORKER_NODE}" dedicated=rbe-worker:NoSchedule --overwrite
+info "Taint applied to ${WORKER_NODE}: dedicated=rbe-worker:NoSchedule"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 4 — Create namespaces

@@ -11,101 +11,78 @@
 #   - infra-node   → managed node groups: system (t3.large ×2) + services (m5.large ×2)
 #   - worker-node  → managed node group:  rbe-workers (c5.xlarge Spot, 0–20)
 #
-# Port strategy:
-#   All UI and service access uses kubectl port-forward (see open-dashboards.sh).
-#   No extraPortMappings needed — avoids conflicts with your existing kind clusters
-#   (bazel-sim uses 30080/30090/30300/30900-30901; bootik-local exposes nothing).
+# cgroup note:
+#   Linux kernel 6.x uses cgroup v2 with systemd as the cgroup driver.
+#   The containerdConfigPatches below tell containerd inside every kind node container
+#   to use SystemdCgroup=true. Without this, the kubelet healthz endpoint times out
+#   on worker nodes and the cluster never forms.
+#   Your existing clusters (bazel-sim, bootik-local) use the same node image so this
+#   patch is already baked into their configs implicitly by older kind versions.
 #
 # Multi-cluster coexistence:
-#   This config uses name: remote-builder. Your existing clusters (bazel-sim, bootik-local)
-#   are untouched. Run one cluster at a time to stay within RAM budget; pause others with:
-#     docker stop $(docker ps -q --filter name=kind-bazel-sim)
-#   Resume with:
-#     docker start $(docker ps -aq --filter name=kind-bazel-sim)
+#   name: remote-builder — never conflicts with bazel-sim or bootik-local.
+#   Pause other clusters to free RAM before heavy phases:
+#     docker stop $(docker ps -q --filter name=bazel-sim)
+#   Resume:
+#     docker start $(docker ps -aq --filter name=bazel-sim)
 
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 
 name: remote-builder
 
-# Use the same Kubernetes version as your existing clusters for consistency.
-# Check with: kind get clusters && docker ps --filter name=kind
-# All three clusters use kindest/node:v1.31.2
+# ── cgroup v2 / systemd fix ────────────────────────────────────────────────────
+# Applied to ALL nodes in the cluster (control-plane + both workers).
+# This patches the containerd config inside each kind node container to use the
+# systemd cgroup driver, which is required on Linux kernel 6.x with cgroup v2.
+#
+# Without this patch:
+#   The kubelet inside worker containers tries to use the cgroupfs driver.
+#   On cgroup v2 systems, cgroupfs driver conflicts with systemd's cgroup management.
+#   Result: kubelet healthz endpoint never responds → 4-minute timeout → join fails.
+#
+# EKS note: EKS AMIs pre-configure the systemd cgroup driver — this is not needed there.
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+        SystemdCgroup = true
 
 nodes:
   # ─────────────────────────────────────────────────────────────────────────────
   # Control plane node
   # Runs: etcd, kube-apiserver, kube-controller-manager, kube-scheduler, CoreDNS
-  # Does NOT run any workloads (tainted by K8s automatically via node-role.kubernetes.io/control-plane:NoSchedule)
+  # Does NOT run any workloads (tainted automatically: node-role.kubernetes.io/control-plane:NoSchedule)
   # ─────────────────────────────────────────────────────────────────────────────
   - role: control-plane
     image: kindest/node:v1.31.2
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Infra node — cluster-wide operators and shared services
-  # Label: pool=infra
-  # Used by: nodeSelector in Argo CD, Istio, Prometheus, KEDA, MinIO, Buildbarn
+  # Label: pool=infra  (applied via kind's native labels field — reliable on K8s 1.31)
+  # Used by: nodeSelector in all Helm charts for Argo CD, Istio, Prometheus, KEDA, MinIO
+  # In EKS: EKS managed node group label set in Terraform
   # ─────────────────────────────────────────────────────────────────────────────
   - role: worker
     image: kindest/node:v1.31.2
-    kubeadmConfigPatches:
-      - |
-        kind: JoinConfiguration
-        nodeRegistration:
-          kubeletExtraArgs:
-            # This label is referenced in Helm chart nodeSelector fields throughout the lab.
-            # In EKS: this becomes an EKS managed node group label set in Terraform.
-            node-labels: "pool=infra"
+    labels:
+      pool: infra
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Worker node — RBE execution workers (tenant pods only)
-  # Label:  pool=rbe-workers
-  # Taint:  dedicated=rbe-worker:NoSchedule
+  # Worker node — RBE execution workers only
+  # Label:  pool=rbe-workers  (applied via kind labels field)
+  # Taint:  dedicated=rbe-worker:NoSchedule  (applied by bootstrap.sh after cluster up)
   #
-  # The taint means NO pod lands here unless it has this toleration:
+  # Pods require this toleration to land here:
   #   tolerations:
   #   - key: dedicated
   #     value: rbe-worker
   #     effect: NoSchedule
   #
-  # Why isolate workers on a dedicated node?
-  #   1. Security: worker pods run arbitrary user build actions in sandboxed containers.
-  #      Keeping them away from control-plane components is defense-in-depth.
-  #   2. Noisy neighbour: build workloads are CPU/memory bursty. Isolation prevents
-  #      a build spike from impacting Argo CD, Prometheus, or the scheduler.
-  #   3. Independent scaling: in production, this node group auto-scales 0→20 on
-  #      Spot instances. Spot interruptions must not affect cluster operators.
-  #
-  # In EKS: this becomes the rbe-workers node group with taint set in Terraform:
+  # In EKS: rbe-workers managed node group, Terraform taint:
   #   taint { key="dedicated" value="rbe-worker" effect="NO_SCHEDULE" }
   # ─────────────────────────────────────────────────────────────────────────────
   - role: worker
     image: kindest/node:v1.31.2
-    kubeadmConfigPatches:
-      - |
-        kind: JoinConfiguration
-        nodeRegistration:
-          kubeletExtraArgs:
-            node-labels: "pool=rbe-workers"
-          # Taint applied at kubelet registration time — persists across pod restarts.
-          # Using taints[] here (not kubeletExtraArgs register-with-taints) for
-          # compatibility with kind v0.20+ and kubeadm JoinConfiguration schema.
-          taints:
-            - key: "dedicated"
-              value: "rbe-worker"
-              effect: "NoSchedule"
-
-# Networking configuration
-networking:
-  # Default CNI (kindnet) is sufficient for the lab.
-  # Istio's sidecar injection works with kindnet.
-  # If you see CNI errors, disableDefaultCNI: true and install Calico — but
-  # this is not needed for this lab.
-
-  # Disable default CNI to let Istio/Calico manage networking (not needed here,
-  # but leaving as a commented reference for EKS where you'd use VPC CNI)
-  # disableDefaultCNI: false
-
-  # Pod subnet — default is fine, no overlap with your other clusters
-  podSubnet: "10.244.0.0/16"
-  serviceSubnet: "10.96.0.0/12"
+    labels:
+      pool: rbe-workers
