@@ -1,0 +1,94 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# app-of-apps.yaml — Root Argo CD Application
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This is the single manifest applied manually during bootstrap:
+#   kubectl apply -f gitops/bootstrap/app-of-apps.yaml
+#
+# It is the ONLY manual kubectl apply in the entire lab after Argo CD is installed.
+# Everything else flows from here via GitOps.
+#
+# What it does:
+#   Points Argo CD at the gitops/apps/ directory in our GitHub repo.
+#   Argo CD scans that directory, finds all Application manifests inside,
+#   and deploys each one. This is the "app of apps" pattern:
+#
+#     app-of-apps (this file)
+#       └── watches gitops/apps/
+#             ├── gitops/apps/sealed-secrets/application.yaml  → deploys Sealed Secrets
+#             ├── gitops/apps/istio-base/application.yaml      → deploys Istio CRDs (Phase 3)
+#             ├── gitops/apps/istiod/application.yaml          → deploys istiod (Phase 3)
+#             ├── gitops/apps/prometheus/application.yaml      → deploys Prometheus (Phase 4)
+#             └── ... (more apps added in later phases)
+#
+# How the GitOps loop works after this apply:
+#   1. You push a new Application manifest to gitops/apps/ on GitHub
+#   2. Argo CD detects the change (polls every 3 minutes, or instant via webhook)
+#   3. app-of-apps re-syncs, creates the new child Application
+#   4. The child Application syncs and deploys the Helm chart
+#   5. Cluster state matches Git state — done
+#
+# To verify it's working:
+#   argocd app list
+#   argocd app get app-of-apps
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+  namespace: argocd
+  # Finalizer ensures Argo CD cleans up child applications when this is deleted.
+  # Without this, deleting app-of-apps would leave all child apps running.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: rbe-lab
+    app.kubernetes.io/component: gitops-root
+
+spec:
+  project: default
+
+  source:
+    # The GitHub repo where Argo CD reads GitOps state.
+    # This must match the repo you registered in bootstrap.sh (argocd repo add).
+    repoURL: https://github.com/exitthematrix26/remote_builder
+
+    # Always track the main branch.
+    # In production you might track a release branch or use a specific tag.
+    targetRevision: HEAD
+
+    # Argo CD will recurse this directory and deploy every Application manifest it finds.
+    # We use recurse: true so each app can live in its own subdirectory (cleaner than
+    # all application.yaml files flat in gitops/apps/).
+    path: gitops/apps
+    directory:
+      recurse: true
+      # Only pick up YAML files — ignore READMEs, values files, etc.
+      jsonnet: {}
+
+  destination:
+    # Deploy child Application objects into the argocd namespace.
+    # The child Applications themselves specify where THEIR resources go.
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    # Automated sync: Argo CD applies changes from Git without manual intervention.
+    automated:
+      # prune: true — if you REMOVE an Application from gitops/apps/, Argo CD
+      # will delete the corresponding deployed resources. Git is the source of truth.
+      prune: true
+      # selfHeal: true — if someone manually changes something in the cluster
+      # (kubectl edit, kubectl patch), Argo CD reverts it back to what Git says.
+      # This enforces "if it's not in Git, it doesn't exist."
+      selfHeal: true
+
+    syncOptions:
+      # Allow Argo CD to create the argocd namespace if it doesn't exist.
+      # (It already exists from bootstrap.sh, but this is defensive.)
+      - CreateNamespace=true
+      # Use server-side apply — required for resources with complex merge strategies
+      # and for managing CRDs that have multiple owners.
+      - ServerSideApply=true

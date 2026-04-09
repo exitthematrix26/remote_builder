@@ -1,0 +1,392 @@
+RBE Platform Lab — Full Context & Generation Brief
+
+Who You Are Talking To (AI Context)
+Think and respond as a staff-level principal platform engineer with deep experience in:
+Kubernetes at scale on AWS (EKS)
+GitOps with Argo CD and Argo Rollouts
+Remote Bazel Execution (REAPI protocol, Buildbarn, EngFlow)
+Istio service mesh, canary deployments, traffic management
+KEDA event-driven autoscaling on Prometheus custom metrics
+Multi-tenant SaaS platform design
+Terraform for AWS infra, Helm for K8s workloads
+The person you are helping is a senior developer (strong coding background, not a
+platform/infra specialist) who wants to learn this stack by building it locally first,
+then migrating to AWS later with minimal changes.
+The Product Being Simulated
+EngFlow — a commercial Remote Bazel Execution (RBE) SaaS platform.
+EngFlow is closed-source, but implements the open Bazel Remote Execution API (REAPI),
+which is a gRPC protocol defined at https://github.com/bazelbuild/remote-apis.
+Buildbarn is the open-source equivalent we use in this lab. It implements the same
+REAPI protocol. When pointing a real Bazel client at Buildbarn vs EngFlow, only the
+endpoint URL changes. The lab teaches the exact right concepts.
+System Components
+Component
+Role
+Local (Lab)
+Production (AWS)
+Frontend / scheduler
+Accepts gRPC from Bazel clients
+Buildbarn scheduler
+EngFlow or Buildbarn
+Remote execution workers
+Sandboxed pods running build actions
+Buildbarn worker
+EngFlow workers
+Content Addressable Storage (CAS)
+Blob storage for build inputs/outputs
+MinIO
+AWS S3
+Action Cache (AC)
+Caches build action results
+Buildbarn + Redis
+Redis ElastiCache
+Metrics
+Prometheus scraping gRPC RPM
+kube-prometheus-stack
+Same
+Autoscaling
+KEDA on Prometheus gRPC metric
+KEDA
+KEDA on EKS
+GitOps
+Argo CD watching GitHub
+Argo CD
+Argo CD
+Canary deploys
+Argo Rollouts + Istio traffic split
+Both local
+Both on EKS
+Service mesh
+Istio
+Istio on kind
+Istio on EKS
+Load generation
+Simulated Bazel gRPC clients
+Custom Go binary
+N/A (prod has real clients)
+Decisions Already Made
+Decision
+Choice
+Reason
+Cloud provider
+AWS
+Existing Terraform infra
+Current K8s state
+None — all EC2/VMs
+Greenfield K8s adoption
+Local cluster tool
+kind (Kubernetes in Docker)
+Linux dev box, no overhead
+Dev machine OS
+Linux
+No virtualization layer needed
+RBE backend
+Buildbarn
+Open source, identical REAPI protocol to EngFlow
+GitOps Git remote
+GitHub (free account)
+Simple, no local Gitea needed
+Repo output format
+Working repo + annotated phase walkthrough
+Learn by doing
+Argo CD git target
+GitHub repo (gitops/ directory)
+Argo watches real remote
+Canary strategy
+Argo Rollouts + Istio VirtualService weights
+Production-equivalent
+Autoscaling signal
+Prometheus custom metric — gRPC requests/min
+Already validated in prior lab
+Tenant isolation
+Kubernetes namespaces + ResourceQuota
+One namespace per customer
+Multi-tenant automation
+Argo CD ApplicationSets
+One values.yaml = one tenant
+AWS auth model (future)
+IRSA (IAM Roles for Service Accounts)
+No shared credentials
+Secrets management
+Sealed Secrets
+Safe to commit encrypted secrets to Git
+Architecture Overview
+Node Pool Topology (kind locally, EKS node groups in prod)
+Cluster
+├── control-plane node
+├── system node pool=system (Argo CD, KEDA, Istio control plane, Prometheus)
+├── services node pool=services (Buildbarn scheduler, MinIO, Redis)
+└── workers node pool=rbe-workers (execution worker pods)
+                       TAINT: dedicated=rbe-worker:NoSchedule
+Namespace Topology
+cluster/
+├── kube-system
+├── istio-system ← Istio control plane
+├── argocd ← Argo CD + Argo Rollouts
+├── cluster-infra ← KEDA, Prometheus, Sealed Secrets
+├── rbe-system ← Buildbarn scheduler + frontend (shared across tenants)
+├── tenant-acme ← First tenant (your own internal builds for low-risk testing)
+│ ├── Rollout: workers
+│ ├── KEDA ScaledObject
+│ ├── ResourceQuota
+│ ├── Redis (action cache)
+│ └── ServiceAccount (IRSA in prod, plain in lab)
+└── tenant-initech ← Second tenant (Phase 6, proves isolation)
+GitOps Repo Layout (what Argo CD watches on GitHub)
+rbe-lab/
+├── cluster/
+│ ├── kind-config.yaml 4-node cluster, taints, labels
+│ ├── bootstrap.sh One script: kind up → Helm installs → Argo sync
+│ ├── install-tools.sh Installs kubectl, kind, helm, argocd, istioctl, k9s
+│ ├── open-dashboards.sh Port-forwards Argo CD, Prometheus, Grafana, Buildbarn
+│ └── config.env.example Copy to config.env, set GitHub repo URL
+│
+├── gitops/ ← Argo CD watches this directory on GitHub
+│ ├── bootstrap/
+│ │ └── app-of-apps.yaml Root Argo Application (installs all other apps)
+│ ├── apps/
+│ │ ├── istio/ Istio via Helm (istiod + gateway)
+│ │ ├── keda/ KEDA controller
+│ │ ├── prometheus/ kube-prometheus-stack
+│ │ ├── minio/ MinIO (local S3)
+│ │ ├── sealed-secrets/ Sealed Secrets controller
+│ │ └── rbe-system/ Buildbarn scheduler + frontend
+│ ├── tenants/
+│ │ ├── _template/ Helm chart used by all tenants
+│ │ ├── tenant-acme/
+│ │ │ └── values.yaml Overrides only (quota, replicas, cache size)
+│ │ └── tenant-initech/
+│ │ └── values.yaml
+│ └── applicationsets/
+│ └── tenants.yaml Generates one Argo Application per tenant dir
+│
+├── charts/
+│ └── rbe-tenant/ Shared Helm chart driving all tenant namespaces
+│ ├── Chart.yaml
+│ ├── values.yaml Defaults (overridden per tenant)
+│ └── templates/
+│ ├── namespace.yaml
+│ ├── resourcequota.yaml
+│ ├── rollout.yaml Argo Rollout (not Deployment) for canary support
+│ ├── scaledobject.yaml KEDA ScaledObject on Prometheus metric
+│ ├── redis.yaml Per-tenant action cache
+│ ├── service.yaml
+│ ├── serviceaccount.yaml
+│ ├── virtualservice.yaml Istio canary traffic split
+│ └── destinationrule.yaml Istio subset definitions (stable/canary)
+│
+├── load-gen/
+│ ├── Dockerfile
+│ ├── main.go gRPC load generator — configurable RPS, concurrent clients
+│ └── README.md
+│
+├── rbe-stub/ Optional: minimal gRPC REAPI stub with /metrics
+│ ├── Dockerfile (Use if Buildbarn is too heavy for early phases)
+│ ├── main.go
+│ └── README.md
+│
+└── docs/
+    ├── phases/
+    │ ├── phase-1-cluster.md
+    │ ├── phase-2-buildbarn.md
+    │ ├── phase-3-istio-rollouts.md
+    │ ├── phase-4-keda.md
+    │ ├── phase-5-loadgen.md
+    │ └── phase-6-multitenant.md
+    └── aws-migration.md Variable swap guide for EKS
+Phase Plan (Generate in This Order)
+Phase 1 — Cluster Bootstrap
+Goal: kind cluster running, Argo CD installed, GitOps loop proven.
+Files to generate:
+cluster/kind-config.yaml
+cluster/install-tools.sh
+cluster/bootstrap.sh (kind create → Istio install → Argo CD helm install → apply app-of-apps)
+cluster/open-dashboards.sh
+cluster/config.env.example
+gitops/bootstrap/app-of-apps.yaml
+docs/phases/phase-1-cluster.md
+Observable outcome: Push any file change to GitHub → Argo CD syncs it within 3 minutes.
+Argo CD UI accessible at http://localhost:8080.
+Phase 2 — Buildbarn via Argo CD
+Goal: Full RBE stack deployed by Argo CD. Bazel client can run a real build.
+Files to generate:
+gitops/apps/minio/ (Argo Application + values)
+gitops/apps/rbe-system/ (Argo Application pointing at Buildbarn Helm chart)
+rbe-stub/main.go + Dockerfile (lightweight REAPI stub for early testing before full Buildbarn)
+A sample WORKSPACE + BUILD file so Bazel has something to build
+docs/phases/phase-2-buildbarn.md
+Observable outcome: bazel build //... --remote_executor=grpc://localhost:8981 succeeds.
+MinIO browser shows CAS blobs being written.
+Phase 3 — Istio + Argo Rollouts (Canary)
+Goal: Worker deployment uses Argo Rollout with Istio canary steps (10→50→100).
+Files to generate:
+gitops/apps/istio/ (Argo Application, istiod + gateway)
+charts/rbe-tenant/templates/rollout.yaml (replaces Deployment)
+charts/rbe-tenant/templates/virtualservice.yaml
+charts/rbe-tenant/templates/destinationrule.yaml
+docs/phases/phase-3-istio-rollouts.md
+Observable outcome: Bump worker image tag in values.yaml → Argo Rollouts sends 10% traffic
+to new version, pauses, waits for promotion. kubectl argo rollouts get rollout workers -w
+shows the canary step progression. Rollback by editing Git — Argo reverts the VirtualService.
+Phase 4 — KEDA Autoscaling on Prometheus Metric
+Goal: Worker pods scale to zero at idle, scale up driven by gRPC RPM from Prometheus.
+Files to generate:
+gitops/apps/prometheus/ (kube-prometheus-stack Argo Application + scrape config)
+gitops/apps/keda/ (KEDA Argo Application)
+charts/rbe-tenant/templates/scaledobject.yaml
+docs/phases/phase-4-keda.md
+Key KEDA config (generate this exactly):
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: rbe-workers-{{ .Values.tenant.name }}
+  namespace: tenant-{{ .Values.tenant.name }}
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout # targets Argo Rollout, not Deployment
+    name: rbe-workers
+  minReplicaCount: 0 # scale to zero when idle
+  maxReplicaCount: {{ .Values.worker.maxReplicas }}
+  cooldownPeriod: 60
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.cluster-infra:9090
+        metricName: grpc_requests_per_minute
+        query: |
+          sum(rate(grpc_server_handled_total{
+            namespace="tenant-{{ .Values.tenant.name }}",
+            grpc_service="build.bazel.remote.execution.v2.Execution"
+          }[2m])) * 60
+        threshold: "5" # one worker pod per 5 RPM
+Observable outcome: Run load generator → watch kubectl get pods -n tenant-acme -w
+show workers spinning up. Stop load generator → workers scale back to zero within ~90 seconds.
+Phase 5 — Load Generator + Real Bazel Workspace
+Goal: Simulate realistic concurrent build load. See full system under stress.
+Files to generate:
+load-gen/main.go (Go, gRPC client implementing REAPI ExecuteRequest spam)
+load-gen/Dockerfile
+load-gen/README.md
+Sample Bazel workspace with enough targets to generate interesting cache behavior
+docs/phases/phase-5-loadgen.md
+Load generator flags to implement:
+--endpoint gRPC endpoint (default: localhost:8981)
+--rps requests per second per worker (default: 10)
+--clients number of concurrent gRPC clients (default: 5)
+--tenant tenant name for metric labeling
+--duration how long to run (default: 60s)
+Observable outcome: Run go run load-gen/main.go --rps 20 --clients 10, watch Grafana
+dashboard show gRPC RPM climb, KEDA scale workers from 0 → N, Prometheus show cache hit rate.
+Phase 6 — Multi-Tenant ApplicationSet
+Goal: Add a second tenant by creating one directory + one values.yaml. Nothing else.
+Files to generate:
+gitops/applicationsets/tenants.yaml (ApplicationSet definition)
+gitops/tenants/tenant-initech/values.yaml
+charts/rbe-tenant/templates/resourcequota.yaml (prove quota isolation)
+docs/phases/phase-6-multitenant.md
+ApplicationSet pattern (generate this):
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: rbe-tenants
+  namespace: argocd
+spec:
+  generators:
+    - git:
+        repoURL: https://github.com/YOUR_ORG/rbe-lab
+        revision: HEAD
+        directories:
+          - path: gitops/tenants/tenant-* # matches any tenant-{name} dir
+  template:
+    metadata:
+      name: '{{path.basename}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/YOUR_ORG/rbe-lab
+        targetRevision: HEAD
+        path: charts/rbe-tenant
+        helm:
+          valueFiles:
+            - /gitops/tenants/{{path.basename}}/values.yaml
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{path.basename}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+Observable outcome: Create gitops/tenants/tenant-initech/values.yaml, push to GitHub,
+watch Argo CD automatically create the namespace, deploy workers, and apply quotas.
+Prove isolation by maxing out tenant-acme quota and confirming tenant-initech is unaffected.
+Key Architecture Principles to Enforce in All Generated Code
+Terraform / Argo CD boundary is sacred. Terraform creates the cluster, node groups,
+IAM, S3, ECR. It never touches K8s manifests. Argo CD owns everything inside the cluster.
+Never use the Terraform K8s provider for workload resources.
+Workers must be stateless. No local state on worker pods. All build outputs go to
+MinIO/S3 (CAS). Any worker can die mid-action — Bazel will retry. This is why Spot works.
+PodDisruptionBudgets on workers. Even though workers are stateless, a PDB should
+ensure at least N-1 workers survive a node drain during active builds.
+Use Argo Rollout, not Deployment, for workers. This is required for canary support
+via Istio. The KEDA ScaledObject must target argoproj.io/v1alpha1/Rollout, not apps/v1/Deployment.
+Scale signal is gRPC RPM, not CPU. Workers at idle have near-zero CPU. KEDA must
+use the Prometheus metric, not the default CPU HPA. This was already validated in a prior
+lab and confirmed correct.
+Per-tenant ResourceQuotas are non-negotiable. Define them in the Helm chart defaults.
+One tenant's burst must never affect another tenant's workers.
+MinIO is a drop-in for S3. The Buildbarn CAS config should use the S3 backend pointed
+at MinIO locally. In production, change the endpoint URL and credentials. No chart changes.
+GitHub is the source of truth. If it is not in Git, it does not exist. Never run
+kubectl apply manually against the cluster for anything Argo CD manages. The only
+exception is the initial Argo CD bootstrap (chicken-and-egg).
+AWS Migration Cheat Sheet (for docs/aws-migration.md)
+Lab (kind/local)
+Production (EKS/AWS)
+kind cluster
+terraform apply → EKS cluster
+MinIO endpoint
+S3 bucket ARN
+Local Docker registry
+ECR repository URLs
+Plain ServiceAccount
+IRSA (IAM role ARN annotation)
+GitHub → localhost Argo CD
+GitHub → EKS Argo CD (same repo)
+Fake OIDC / no auth
+ACM certs + Route53 + ALB
+Node taints via kind config
+EKS managed node group taints
+Single AZ (kind)
+Multi-AZ node groups
+Terraform modules to write (separate repo or terraform/ directory):
+modules/eks-cluster — VPC, EKS, node groups (system, services, rbe-workers)
+modules/s3-cache — CAS bucket, lifecycle rules, bucket policy
+modules/irsa — IAM role + OIDC trust policy per tenant
+modules/ecr — Container registries for rbe-stub, load-gen, worker images
+modules/elasticache — Redis for action cache (replaces per-tenant Redis pods)
+Resume Prompt (Copy This Exactly When Starting IDE Session)
+I have a LAB.md file with full context for a local Kubernetes RBE platform lab.
+Please read it completely before doing anything else.
+
+The goal is to generate a working GitHub repo + annotated phase walkthrough
+that lets a senior developer learn Kubernetes, Argo CD, Istio, KEDA, and
+Buildbarn (as an EngFlow RBE simulator) by building it locally on Linux with kind.
+
+Start with Phase 1. Generate every file listed under Phase 1 completely —
+no placeholders, no TODOs. Each file should be production-quality with
+inline comments explaining the why, not just the what. After Phase 1 is
+complete and all files are shown, pause and ask me to confirm before
+moving to Phase 2.
+Prior Lab Context (What Was Already Built)
+The person has already completed a previous lab with:
+A Kubernetes cluster (likely kind or minikube)
+Remote cache only (no remote execution workers)
+HPA scaling on a custom Prometheus metric (gRPC requests/minute)
+A simulated load tester generating gRPC traffic
+No Argo CD, no Istio, no multi-tenancy, no GitOps
+This lab builds on that foundation. Do not re-explain basic K8s concepts from scratch.
+Treat the person as someone who has seen pods scale on a custom metric and wants to
+understand the full production architecture around it.

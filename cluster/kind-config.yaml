@@ -1,0 +1,111 @@
+# kind cluster configuration for remote-builder lab
+#
+# Creates a 3-node cluster:
+#   - control-plane: K8s control plane components only (etcd, api-server, scheduler)
+#   - infra-node:    All cluster operators + shared services (Argo CD, Istio, Prometheus,
+#                    KEDA, Sealed Secrets, MinIO, Buildbarn scheduler)
+#   - worker-node:   Tenant workloads only (RBE worker pods)
+#                    Tainted so nothing lands here without an explicit toleration.
+#
+# AWS EKS equivalent:
+#   - infra-node   → managed node groups: system (t3.large ×2) + services (m5.large ×2)
+#   - worker-node  → managed node group:  rbe-workers (c5.xlarge Spot, 0–20)
+#
+# Port strategy:
+#   All UI and service access uses kubectl port-forward (see open-dashboards.sh).
+#   No extraPortMappings needed — avoids conflicts with your existing kind clusters
+#   (bazel-sim uses 30080/30090/30300/30900-30901; bootik-local exposes nothing).
+#
+# Multi-cluster coexistence:
+#   This config uses name: remote-builder. Your existing clusters (bazel-sim, bootik-local)
+#   are untouched. Run one cluster at a time to stay within RAM budget; pause others with:
+#     docker stop $(docker ps -q --filter name=kind-bazel-sim)
+#   Resume with:
+#     docker start $(docker ps -aq --filter name=kind-bazel-sim)
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+
+name: remote-builder
+
+# Use the same Kubernetes version as your existing clusters for consistency.
+# Check with: kind get clusters && docker ps --filter name=kind
+# All three clusters use kindest/node:v1.31.2
+
+nodes:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Control plane node
+  # Runs: etcd, kube-apiserver, kube-controller-manager, kube-scheduler, CoreDNS
+  # Does NOT run any workloads (tainted by K8s automatically via node-role.kubernetes.io/control-plane:NoSchedule)
+  # ─────────────────────────────────────────────────────────────────────────────
+  - role: control-plane
+    image: kindest/node:v1.31.2
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Infra node — cluster-wide operators and shared services
+  # Label: pool=infra
+  # Used by: nodeSelector in Argo CD, Istio, Prometheus, KEDA, MinIO, Buildbarn
+  # ─────────────────────────────────────────────────────────────────────────────
+  - role: worker
+    image: kindest/node:v1.31.2
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            # This label is referenced in Helm chart nodeSelector fields throughout the lab.
+            # In EKS: this becomes an EKS managed node group label set in Terraform.
+            node-labels: "pool=infra"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Worker node — RBE execution workers (tenant pods only)
+  # Label:  pool=rbe-workers
+  # Taint:  dedicated=rbe-worker:NoSchedule
+  #
+  # The taint means NO pod lands here unless it has this toleration:
+  #   tolerations:
+  #   - key: dedicated
+  #     value: rbe-worker
+  #     effect: NoSchedule
+  #
+  # Why isolate workers on a dedicated node?
+  #   1. Security: worker pods run arbitrary user build actions in sandboxed containers.
+  #      Keeping them away from control-plane components is defense-in-depth.
+  #   2. Noisy neighbour: build workloads are CPU/memory bursty. Isolation prevents
+  #      a build spike from impacting Argo CD, Prometheus, or the scheduler.
+  #   3. Independent scaling: in production, this node group auto-scales 0→20 on
+  #      Spot instances. Spot interruptions must not affect cluster operators.
+  #
+  # In EKS: this becomes the rbe-workers node group with taint set in Terraform:
+  #   taint { key="dedicated" value="rbe-worker" effect="NO_SCHEDULE" }
+  # ─────────────────────────────────────────────────────────────────────────────
+  - role: worker
+    image: kindest/node:v1.31.2
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "pool=rbe-workers"
+          # Taint applied at kubelet registration time — persists across pod restarts.
+          # Using taints[] here (not kubeletExtraArgs register-with-taints) for
+          # compatibility with kind v0.20+ and kubeadm JoinConfiguration schema.
+          taints:
+            - key: "dedicated"
+              value: "rbe-worker"
+              effect: "NoSchedule"
+
+# Networking configuration
+networking:
+  # Default CNI (kindnet) is sufficient for the lab.
+  # Istio's sidecar injection works with kindnet.
+  # If you see CNI errors, disableDefaultCNI: true and install Calico — but
+  # this is not needed for this lab.
+
+  # Disable default CNI to let Istio/Calico manage networking (not needed here,
+  # but leaving as a commented reference for EKS where you'd use VPC CNI)
+  # disableDefaultCNI: false
+
+  # Pod subnet — default is fine, no overlap with your other clusters
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"

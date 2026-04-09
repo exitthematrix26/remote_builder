@@ -1,0 +1,24 @@
+# Local cluster config — contains GitHub PAT and secrets
+cluster/config.env
+
+# Bazel output directories
+bazel-*
+.bazel/
+
+# Go build artifacts
+load-gen/load-gen
+rbe-stub/rbe-stub
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Helm dependency caches
+charts/*/charts/
+charts/*/Chart.lock
+
+# kubeseal temp files
+*.unsealed.yaml

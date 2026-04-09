@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Sealed Secrets — Argo CD Application
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Sealed Secrets solves a fundamental GitOps problem:
+#   "How do you store Kubernetes Secrets in Git without exposing plaintext credentials?"
+#
+# Answer: encrypt them client-side with kubeseal before committing.
+#
+# Architecture:
+#   1. The sealed-secrets-controller (deployed by this Application) holds a
+#      private RSA key. It's the ONLY thing that can decrypt SealedSecrets.
+#
+#   2. You use the kubeseal CLI on your machine to encrypt a plain K8s Secret
+#      using the controller's PUBLIC key (fetched via kubeseal --fetch-cert).
+#      The result is a SealedSecret YAML — safe to commit.
+#
+#   3. When Argo CD applies the SealedSecret, the controller decrypts it and
+#      creates a real K8s Secret in the cluster. Your pods read the Secret as normal.
+#
+# The private key never leaves the cluster. If someone steals your Git repo,
+# they get encrypted blobs — useless without the controller's private key.
+#
+# CRITICAL: Back up the private key after install:
+#   kubectl -n cluster-infra get secret \
+#     -l sealedsecrets.bitnami.com/sealed-secrets-key=active \
+#     -o yaml > ~/sealed-secrets-master-key.yaml
+#   (Store this somewhere secure — NOT in Git)
+#
+# Sync wave: -3 (first thing Argo CD deploys)
+# Reason: other secrets (ghcr.io pull secret, MinIO credentials) need to be
+# sealed before the services that need them start. Controller must exist first.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sealed-secrets
+  namespace: argocd
+  annotations:
+    # Sync wave -3: Deploy before all other applications.
+    # Argo CD processes waves in ascending order: -3, -2, -1, 0, 1, 2, ...
+    # Wave -3 means this is the very first thing deployed in the cluster.
+    argocd.argoproj.io/sync-wave: "-3"
+  labels:
+    app.kubernetes.io/part-of: rbe-lab
+    app.kubernetes.io/component: cluster-infra
+
+spec:
+  project: default
+
+  source:
+    # Official Sealed Secrets Helm chart from bitnami-labs
+    repoURL: https://bitnami-labs.github.io/sealed-secrets
+    chart: sealed-secrets
+    # Pin to a specific chart version for reproducibility.
+    # Chart 2.16.x → sealed-secrets controller v0.27.x
+    targetRevision: "2.16.1"
+
+    helm:
+      values: |
+        # Override the default name so the controller is always named
+        # 'sealed-secrets-controller' regardless of the Helm release name.
+        # kubeseal looks for this exact name by default.
+        fullnameOverride: sealed-secrets-controller
+
+        # The controller watches ALL namespaces for SealedSecret objects.
+        # A SealedSecret is namespace-scoped: a secret sealed for namespace A
+        # cannot be decrypted and used in namespace B (security by design).
+        # This is the correct default — don't change it.
+
+        # Resource limits for the controller pod.
+        # It's lightweight — just watching for SealedSecret objects and decrypting.
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+
+        # Place the controller on the infra node.
+        # This nodeSelector is consistent with all cluster-infra components.
+        nodeSelector:
+          pool: infra
+
+  destination:
+    server: https://kubernetes.default.svc
+    # Deploy into cluster-infra — the namespace for cluster-wide operators.
+    # This is consistent with KEDA, Prometheus, and other cluster operators.
+    namespace: cluster-infra
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
