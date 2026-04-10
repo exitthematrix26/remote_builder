@@ -1,0 +1,22 @@
+module(
+    name = "hello_bazel",
+    version = "0.1.0",
+)
+
+# ── Go toolchain ──────────────────────────────────────────────────────────────
+# Bzlmod (MODULE.bazel) replaces the old WORKSPACE http_archive pattern.
+# Dependencies are declared here and fetched from the Bazel Central Registry.
+# No SHA256 pinning needed — BCR handles immutable versioned releases.
+#
+# rules_go: Bazel support for the Go programming language
+# gazelle:  Generates BUILD files from Go source automatically (optional here,
+#           but good practice for larger projects)
+
+bazel_dep(name = "rules_go", version = "0.60.0")
+bazel_dep(name = "gazelle", version = "0.50.0")
+
+# ── Register a specific Go SDK version ───────────────────────────────────────
+# Without this, rules_go downloads the latest Go SDK at build time.
+# Pinning ensures every machine (local + RBE workers) uses the same toolchain.
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(version = "1.23.4")

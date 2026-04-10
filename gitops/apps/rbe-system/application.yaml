@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# rbe-system — Argo CD Application (Buildbarn)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Deploys the full Buildbarn RBE stack into the rbe-system namespace:
+#   bb-storage   — CAS + Action Cache gRPC server (backed by MinIO)
+#   bb-scheduler — Frontend: accepts Bazel gRPC, routes to workers
+#   bb-worker    — Executes build actions (on the dedicated worker node)
+#
+# Why a custom chart (charts/buildbarn/)?
+#   Buildbarn has no official Helm chart. The upstream bb-deployments repo uses
+#   Jsonnet — adding a foreign DSL to the lab. We write a clean Helm chart that
+#   wraps the official ghcr.io/buildbarn/* container images. This is exactly
+#   what every real platform team does.
+#
+# Sync wave 2: depends on MinIO (wave 1) being healthy.
+# bb-storage connects to MinIO on startup — if MinIO isn't ready, bb-storage
+# fails to initialize and the scheduler can't route any work.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rbe-system
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app.kubernetes.io/part-of: rbe-lab
+    app.kubernetes.io/component: rbe
+
+spec:
+  project: default
+
+  source:
+    # Local chart in the same repo — Argo CD clones the repo and renders it.
+    # This is the standard pattern for org-owned Helm charts.
+    repoURL: https://github.com/exitthematrix26/remote_builder
+    targetRevision: HEAD
+    path: charts/buildbarn
+
+    helm:
+      valuesObject:
+        # ── MinIO connection ─────────────────────────────────────────────────
+        # Buildbarn storage connects to MinIO for CAS and AC blobs.
+        # In production: swap endpoint → S3 ARN, credentials → IRSA.
+        minio:
+          endpoint: "http://minio.minio:9000"
+          accessKey: "minioadmin"
+          secretKey: "minioadmin"
+          region: "us-east-1"
+          casBucket: "rbe-cas"
+          acBucket: "rbe-ac"
+
+        # ── Image versions ───────────────────────────────────────────────────
+        # Buildbarn uses date-based image tags (e.g. 20240201T095454Z-b1a6ad5).
+        # Check current tags at: https://github.com/buildbarn/bb-storage/pkgs/container/bb-storage
+        # Using 'latest' here for lab simplicity; pin in production.
+        image:
+          pullPolicy: Always
+
+        # ── Replicas ─────────────────────────────────────────────────────────
+        storage:
+          replicas: 1
+        scheduler:
+          replicas: 1
+        worker:
+          replicas: 2   # 2 workers on the worker node
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rbe-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,109 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Buildbarn Helm Chart — Default Values
+# ─────────────────────────────────────────────────────────────────────────────
+# These are the lab defaults. Override in gitops/apps/rbe-system/application.yaml.
+# In production: separate values files per environment (lab.yaml, prod.yaml).
+
+# ── MinIO / S3 connection ──────────────────────────────────────────────────
+# All three Buildbarn components share this config for CAS and AC storage.
+# Production swap: change endpoint → S3 URL, credentials → IRSA annotations.
+minio:
+  endpoint: "http://minio.minio:9000"
+  accessKey: "minioadmin"
+  secretKey: "minioadmin"
+  region: "us-east-1"
+  casBucket: "rbe-cas"         # Content Addressable Storage blobs
+  acBucket: "rbe-ac"           # Action Cache results
+
+# ── Container images ──────────────────────────────────────────────────────
+# Official Buildbarn images from GitHub Container Registry.
+# Tags follow the pattern: 20240201T095454Z-b1a6ad5 (date + commit SHA)
+# Check current tags at:
+#   https://github.com/buildbarn/bb-storage/pkgs/container/bb-storage
+#   https://github.com/buildbarn/bb-scheduler/pkgs/container/bb-scheduler
+#   https://github.com/buildbarn/bb-worker/pkgs/container/bb-worker
+image:
+  storage:
+    repository: ghcr.io/buildbarn/bb-storage
+    tag: latest
+  scheduler:
+    repository: ghcr.io/buildbarn/bb-scheduler
+    tag: latest
+  worker:
+    repository: ghcr.io/buildbarn/bb-worker
+    tag: latest
+  runnerInstaller:
+    repository: ghcr.io/buildbarn/bb-runner-installer
+    tag: latest
+  pullPolicy: Always           # Always pull latest — change to IfNotPresent when pinning tags
+
+# ── bb-storage ────────────────────────────────────────────────────────────
+# Implements CAS (Content Addressable Storage) and AC (Action Cache) gRPC APIs.
+# Bazel uploads/downloads build blobs here. Backed by MinIO/S3.
+# Internal service only — not exposed outside the cluster.
+storage:
+  replicas: 1
+  port: 8980                   # Internal gRPC port (scheduler + workers connect here)
+  nodeSelector:
+    pool: infra                # Runs on infra node alongside MinIO
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ── bb-scheduler ──────────────────────────────────────────────────────────
+# The RBE frontend. Bazel clients connect here with Execute + CAS requests.
+# Routes build actions to available workers in the pool.
+# Port 8981 is what you put in .bazelrc: --remote_executor=grpc://localhost:8981
+scheduler:
+  replicas: 1
+  clientPort: 8981             # Bazel clients connect here (exposed via NodePort/port-forward)
+  workerPort: 8982             # Workers connect here (internal only)
+  nodeSelector:
+    pool: infra
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# ── bb-worker ─────────────────────────────────────────────────────────────
+# Executes build actions received from the scheduler.
+# Each pod runs two containers:
+#   1. bb-runner (installs via init container, listens on Unix socket)
+#   2. bb-worker (connects to scheduler + runner)
+# Workers MUST run on the dedicated worker node (toleration required).
+worker:
+  replicas: 2
+  concurrency: 2               # Simultaneous build actions per worker pod
+  # Platform properties Bazel must request to route work to these workers.
+  # In .bazelrc: --extra_execution_platforms=//:rbe_platform
+  # In BUILD:    exec_properties = {"OSFamily": "linux"}
+  platform:
+    os: linux
+    arch: amd64
+  nodeSelector:
+    pool: rbe-workers
+  # The taint on the worker node — pods need this toleration to land there.
+  tolerations:
+    - key: dedicated
+      value: rbe-worker
+      effect: NoSchedule
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+
+# ── imagePullSecrets ──────────────────────────────────────────────────────
+# Reference the ghcr.io pull secret created by bootstrap.sh.
+# In production with ECR + IRSA: remove this entirely (no pull secret needed).
+imagePullSecrets:
+  - name: ghcr-pull-secret

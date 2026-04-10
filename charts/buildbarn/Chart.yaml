@@ -1,0 +1,27 @@
+apiVersion: v2
+name: buildbarn
+description: >
+  Custom Helm chart for Buildbarn — the open-source Remote Bazel Execution (RBE)
+  platform implementing the REAPI protocol identical to EngFlow.
+
+  Wraps official ghcr.io/buildbarn/* container images. Written as a Helm chart
+  (not Jsonnet like upstream bb-deployments) for clarity and GitOps compatibility.
+
+  Components:
+    bb-storage   — gRPC CAS + Action Cache server (S3/MinIO backend)
+    bb-scheduler — Frontend accepts Bazel gRPC, routes to worker pools
+    bb-worker    — Executes build actions (sandboxed, on dedicated node)
+
+type: application
+version: 0.1.0
+appVersion: "latest"
+
+keywords:
+  - bazel
+  - rbe
+  - remote-execution
+  - buildbarn
+  - reapi
+
+maintainers:
+  - name: exitthematrix26

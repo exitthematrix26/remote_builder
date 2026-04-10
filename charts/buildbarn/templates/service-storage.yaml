@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bb-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "buildbarn.labels" . | nindent 4 }}
+    {{- include "buildbarn.storage.selectorLabels" . | nindent 4 }}
+spec:
+  # ClusterIP: internal-only — only bb-scheduler and bb-worker need to reach it.
+  # Bazel clients never talk directly to storage; they go through the scheduler.
+  type: ClusterIP
+  selector:
+    {{- include "buildbarn.storage.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.storage.port }}
+      targetPort: grpc
+      protocol: TCP

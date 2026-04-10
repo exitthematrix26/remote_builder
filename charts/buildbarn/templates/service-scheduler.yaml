@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bb-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "buildbarn.labels" . | nindent 4 }}
+    {{- include "buildbarn.scheduler.selectorLabels" . | nindent 4 }}
+spec:
+  # ClusterIP: workers reach the scheduler internally (grpc-worker port).
+  # Bazel clients reach it via port-forward or NodePort for local testing.
+  #
+  # For local kind access: kubectl port-forward svc/bb-scheduler 8981:8981 -n rbe-system
+  # Then use: --remote_executor=grpc://localhost:8981
+  #
+  # In production: replace with a LoadBalancer or expose through the Istio gateway.
+  type: ClusterIP
+  selector:
+    {{- include "buildbarn.scheduler.selectorLabels" . | nindent 4 }}
+  ports:
+    # Bazel clients connect here to submit build actions
+    - name: grpc-client
+      port: {{ .Values.scheduler.clientPort }}
+      targetPort: grpc-client
+      protocol: TCP
+    # Workers connect here to announce capacity and receive assigned actions
+    - name: grpc-worker
+      port: {{ .Values.scheduler.workerPort }}
+      targetPort: grpc-worker
+      protocol: TCP

@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bb-storage-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "buildbarn.labels" . | nindent 4 }}
+data:
+  # ─────────────────────────────────────────────────────────────────────────
+  # bb-storage configuration (JSON, maps to Buildbarn's ApplicationConfiguration proto)
+  #
+  # bb-storage implements two gRPC services:
+  #   ContentAddressableStorage (CAS) — stores raw build blobs by SHA-256 hash
+  #   ActionCache (AC)               — stores (action hash → result) mappings
+  #
+  # Both are backed by S3/MinIO. Buildbarn uses the S3 API directly — MinIO
+  # is a drop-in. In production, change endpoint + credentials. Zero code changes.
+  #
+  # The blobstore section configures two independent storage backends:
+  #   cas: Content-addressed blobs (build inputs and outputs)
+  #   ac:  Action cache (maps an action's hash to its previously computed result)
+  #
+  # Why separate buckets?
+  #   CAS blobs are immutable and content-addressed — the same SHA-256 hash
+  #   always means the same content. They can be shared across tenants safely.
+  #   AC entries are mutable — a new build result can replace an old one.
+  #   Separate buckets allows independent lifecycle policies (e.g., expire AC
+  #   entries after 7 days, keep CAS blobs for 30 days).
+  # ─────────────────────────────────────────────────────────────────────────
+  storage.json: |
+    {
+      "blobstore": {
+        "cas": {
+          "s3": {
+            "endpoint": "{{ .Values.minio.endpoint }}",
+            "accessKeyId": "{{ .Values.minio.accessKey }}",
+            "secretAccessKey": "{{ .Values.minio.secretKey }}",
+            "region": "{{ .Values.minio.region }}",
+            "bucket": "{{ .Values.minio.casBucket }}",
+            "keyPrefix": "cas/",
+            "disableSsl": true,
+            "s3ForcePathStyle": true
+          }
+        },
+        "ac": {
+          "s3": {
+            "endpoint": "{{ .Values.minio.endpoint }}",
+            "accessKeyId": "{{ .Values.minio.accessKey }}",
+            "secretAccessKey": "{{ .Values.minio.secretKey }}",
+            "region": "{{ .Values.minio.region }}",
+            "bucket": "{{ .Values.minio.acBucket }}",
+            "keyPrefix": "ac/",
+            "disableSsl": true,
+            "s3ForcePathStyle": true
+          }
+        }
+      },
+      "grpcServers": [{
+        "listenAddresses": [":{{ .Values.storage.port }}"],
+        "authenticationPolicy": { "allow": {} }
+      }],
+      "maximumMessageSizeBytes": 16777216
+    }
