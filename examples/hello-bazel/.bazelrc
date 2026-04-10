@@ -1,0 +1,40 @@
+# ── Local build (default) ────────────────────────────────────────────────────
+# Plain `bazel build //...` uses this config — no flags needed.
+
+# ── Remote build via RBE ─────────────────────────────────────────────────────
+# Usage: bazel build --config=rbe //...
+#
+# Prerequisites:
+#   kubectl port-forward svc/bb-scheduler 8981:8981 -n rbe-system
+#
+# What each flag does:
+#   --remote_executor         gRPC endpoint of the scheduler (Bazel's entry point)
+#   --remote_cache            Same endpoint — bb-scheduler proxies AC/CAS reads
+#   --remote_timeout          Seconds to wait for a single RPC call
+#   --jobs                    How many parallel actions to submit; match worker concurrency
+#   --build_event_text_file   Human-readable BEP log written locally (great for debugging)
+#
+# Platform constraints:
+#   --platforms               Tells Bazel what platform to build FOR (the target)
+#   --extra_execution_platforms  Platforms the remote workers can execute ON
+#   The scheduler matches action platform properties to worker advertisements.
+#   Our workers advertise OSFamily=linux,ISA=amd64 (set in values.yaml).
+#
+build:rbe --remote_executor=grpc://localhost:8981
+build:rbe --remote_cache=grpc://localhost:8981
+build:rbe --remote_timeout=120
+build:rbe --jobs=4
+build:rbe --build_event_text_file=/tmp/bep.txt
+
+# Tell Bazel this build targets linux/amd64 — must match worker platform properties
+# With Bzlmod (MODULE.bazel) the label uses @rules_go instead of @io_bazel_rules_go
+build:rbe --platforms=@rules_go//go/toolchain:linux_amd64
+build:rbe --extra_execution_platforms=@rules_go//go/toolchain:linux_amd64
+
+# ── Verbose remote (debug) ───────────────────────────────────────────────────
+# Usage: bazel build --config=rbe-verbose //...
+# Adds gRPC-level logging — shows exactly which actions go remote vs local.
+build:rbe-verbose --config=rbe
+build:rbe-verbose --execution_log_binary_file=/tmp/exec.log
+build:rbe-verbose --verbose_failures
+build:rbe-verbose --subcommands=pretty_print

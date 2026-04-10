@@ -1,0 +1,107 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MinIO — Argo CD Application
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# MinIO is an S3-compatible object store. In this lab it serves as the
+# Content Addressable Storage (CAS) backend for Buildbarn.
+#
+# Why S3-compatible?
+#   Buildbarn's storage backend uses the S3 API. By pointing it at MinIO
+#   locally, we get identical behavior to AWS S3 in production — only the
+#   endpoint URL and credentials change. Zero chart changes needed for migration.
+#
+# What gets stored here:
+#   Bucket rbe-cas: build input/output blobs (keyed by content hash)
+#   Bucket rbe-ac:  action cache results (keyed by action hash → result digest)
+#
+# Sync wave 1: MinIO must be healthy before Buildbarn starts.
+# Buildbarn's bb-storage will fail on startup if it can't reach MinIO.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: minio
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: rbe-lab
+    app.kubernetes.io/component: storage
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://charts.min.io
+    chart: minio
+    targetRevision: "5.2.0"
+    helm:
+      valuesObject:
+        # ── Credentials ─────────────────────────────────────────────────────
+        # Plain credentials for the lab. In Phase 3 these will be replaced
+        # with a SealedSecret. Never use plaintext credentials in production.
+        rootUser: "minioadmin"
+        rootPassword: "minioadmin"
+
+        # ── Storage ─────────────────────────────────────────────────────────
+        # Single-node mode — fine for local lab, not HA.
+        # In production: use distributed mode with multiple replicas and
+        # a proper StorageClass backed by EBS gp3 volumes.
+        mode: standalone
+        replicas: 1
+        persistence:
+          enabled: true
+          size: 5Gi
+
+        # ── Buckets ─────────────────────────────────────────────────────────
+        # Created automatically on first start by the MinIO Helm chart.
+        # rbe-cas: stores raw build blobs (content-addressed by SHA-256 hash)
+        # rbe-ac:  stores action cache entries (action hash → result digest mapping)
+        buckets:
+          - name: rbe-cas
+            policy: none
+            purge: false
+          - name: rbe-ac
+            policy: none
+            purge: false
+
+        # ── Node placement ───────────────────────────────────────────────────
+        # MinIO runs on the infra node alongside other shared services.
+        # In production: dedicated storage node group or just use S3 (no pod).
+        nodeSelector:
+          pool: infra
+
+        # ── Resources ────────────────────────────────────────────────────────
+        # Tight limits for lab — MinIO at idle uses ~100MB.
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 100m
+          limits:
+            memory: 512Mi
+            cpu: 500m
+
+        # ── Service ──────────────────────────────────────────────────────────
+        # ClusterIP — access via kubectl port-forward or from within cluster.
+        # Buildbarn connects to: http://minio.minio:9000
+        service:
+          type: ClusterIP
+          port: 9000
+
+        # ── Console ─────────────────────────────────────────────────────────
+        # MinIO browser UI — port-forwarded to localhost:9001 by open-dashboards.sh
+        consoleService:
+          type: ClusterIP
+          port: 9001
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: minio
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

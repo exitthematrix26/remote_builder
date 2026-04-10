@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bb-worker-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "buildbarn.labels" . | nindent 4 }}
+data:
+  # ─────────────────────────────────────────────────────────────────────────
+  # bb-worker configuration
+  #
+  # The worker is responsible for executing build actions.
+  # Each worker pod runs two containers connected by a Unix socket:
+  #
+  #   bb-worker (main container)
+  #     - Connects to scheduler to receive work
+  #     - Downloads inputs from CAS (via bb-storage)
+  #     - Sends work to bb-runner via Unix socket
+  #     - Uploads outputs back to CAS
+  #     - Reports result to scheduler
+  #
+  #   bb-runner (companion container, binary installed by init container)
+  #     - Listens on Unix socket /worker/runner
+  #     - Receives RunRequest from bb-worker
+  #     - Executes the actual build command in the build directory
+  #     - Returns stdout, stderr, exit code
+  #
+  # Platform properties: must match what Bazel requests in .bazelrc or BUILD.
+  # If Bazel requests OSFamily=linux and workers advertise OSFamily=linux,
+  # the scheduler routes the action to these workers.
+  #
+  # buildDirectoryPath: where build inputs are extracted before running the action
+  # cacheDirectoryPath: local cache for inputs that are likely to be reused
+  #
+  # Why a Unix socket between worker and runner?
+  #   Separation of concerns: bb-worker manages the queueing, retries, and CAS
+  #   interaction. bb-runner handles only the execution. This lets Buildbarn
+  #   support different runner backends (local, Docker, gVisor) without changing
+  #   the worker logic.
+  # ─────────────────────────────────────────────────────────────────────────
+  worker.json: |
+    {
+      "maximumMessageSizeBytes": 16777216,
+      "schedulers": {
+        "": {
+          "endpoint": {
+            "address": "bb-scheduler:{{ .Values.scheduler.workerPort }}"
+          }
+        }
+      },
+      "buildDirectories": [{
+        "native": {
+          "buildDirectoryPath": "/worker/build",
+          "cacheDirectoryPath": "/worker/cache"
+        },
+        "runners": [{
+          "endpoint": {
+            "address": "unix:///worker/runner"
+          },
+          "concurrency": {{ .Values.worker.concurrency }},
+          "platformProperties": {
+            "properties": [
+              { "name": "OSFamily",  "value": "{{ .Values.worker.platform.os }}"  },
+              { "name": "ISA",       "value": "{{ .Values.worker.platform.arch }}" }
+            ]
+          }
+        }]
+      }]
+    }
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # bb-runner configuration
+  #
+  # bb-runner is the execution engine. It receives RunRequests from bb-worker
+  # and executes commands in the build directory.
+  #
+  # The 'local' buildExecutor runs commands directly in the container.
+  # No Docker-in-Docker, no gVisor — just a subprocess. Correct for a lab
+  # where we trust the build actions. In production with untrusted external
+  # builds, use the Docker or gVisor executor for sandboxing.
+  # ─────────────────────────────────────────────────────────────────────────
+  runner.json: |
+    {
+      "grpcServers": [{
+        "listenAddresses": ["unix:///worker/runner"],
+        "authenticationPolicy": { "allow": {} }
+      }],
+      "buildExecutor": {
+        "local": {}
+      },
+      "maximumMessageSizeBytes": 16777216
+    }

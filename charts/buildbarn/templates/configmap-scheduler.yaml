@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bb-scheduler-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "buildbarn.labels" . | nindent 4 }}
+data:
+  # ─────────────────────────────────────────────────────────────────────────
+  # bb-scheduler configuration
+  #
+  # The scheduler is the RBE frontend — the entry point for Bazel clients.
+  # It listens on two gRPC ports:
+  #   clientPort (8981): Bazel clients connect here with Execute requests
+  #   workerPort (8982): Workers connect here to announce capacity and fetch work
+  #
+  # When Bazel sends an Execute request:
+  #   1. Scheduler receives the action
+  #   2. Checks the action cache (via bb-storage) — if hit, returns immediately
+  #   3. If miss: queues the action, waits for an available worker
+  #   4. Worker picks up the action, executes it, uploads result to CAS
+  #   5. Scheduler stores result in AC, returns to Bazel
+  #
+  # The storage backend points at bb-storage's internal gRPC port.
+  # bb-storage handles all CAS and AC operations — the scheduler delegates to it.
+  #
+  # invocationStagedByIdAndTimeout: the scheduling algorithm.
+  # Groups actions by invocation (one Bazel build = one invocation) and
+  # deduplicates identical actions. If two Bazel clients build the same target
+  # simultaneously, only one build action runs — both get the same result.
+  # ─────────────────────────────────────────────────────────────────────────
+  scheduler.json: |
+    {
+      "clientGrpcServers": [{
+        "listenAddresses": [":{{ .Values.scheduler.clientPort }}"],
+        "authenticationPolicy": { "allow": {} }
+      }],
+      "workerGrpcServers": [{
+        "listenAddresses": [":{{ .Values.scheduler.workerPort }}"],
+        "authenticationPolicy": { "allow": {} }
+      }],
+      "storage": {
+        "grpc": {
+          "address": "bb-storage:{{ .Values.storage.port }}"
+        }
+      },
+      "executeAuthorizer": { "allow": {} },
+      "scheduler": {
+        "invocationStagedByIdAndTimeout": {}
+      },
+      "maximumMessageSizeBytes": 16777216
+    }
