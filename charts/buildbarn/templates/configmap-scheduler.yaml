@@ -7,27 +7,27 @@ metadata:
     {{- include "buildbarn.labels" . | nindent 4 }}
 data:
   # ─────────────────────────────────────────────────────────────────────────
-  # bb-scheduler configuration
+  # bb-scheduler configuration (Buildbarn v0.0.x / 2026 schema)
+  #
+  # BREAKING CHANGE from older versions:
+  #   Old schema: "scheduler": { "invocationStagedByIdAndTimeout": {} }
+  #   New schema: "actionRouter": { "simple": { ... } }
   #
   # The scheduler is the RBE frontend — the entry point for Bazel clients.
-  # It listens on two gRPC ports:
-  #   clientPort (8981): Bazel clients connect here with Execute requests
-  #   workerPort (8982): Workers connect here to announce capacity and fetch work
+  # Two gRPC ports:
+  #   clientPort ({{ .Values.scheduler.clientPort }}): Bazel --remote_executor connects here
+  #   workerPort ({{ .Values.scheduler.workerPort }}): bb-worker instances register here
   #
-  # When Bazel sends an Execute request:
-  #   1. Scheduler receives the action
-  #   2. Checks the action cache (via bb-storage) — if hit, returns immediately
-  #   3. If miss: queues the action, waits for an available worker
-  #   4. Worker picks up the action, executes it, uploads result to CAS
-  #   5. Scheduler stores result in AC, returns to Bazel
+  # actionRouter.simple:
+  #   platformKeyExtractor.action — uses platform properties from the action itself
+  #     (OSFamily, ISA) to match workers. Workers advertise these in their config.
+  #   invocationKeyExtractors — groups actions by Bazel invocation ID and tool ID
+  #     so one slow build doesn't starve another client's actions.
+  #   initialSizeClassAnalyzer — sets default + max execution timeouts.
   #
-  # The storage backend points at bb-storage's internal gRPC port.
-  # bb-storage handles all CAS and AC operations — the scheduler delegates to it.
-  #
-  # invocationStagedByIdAndTimeout: the scheduling algorithm.
-  # Groups actions by invocation (one Bazel build = one invocation) and
-  # deduplicates identical actions. If two Bazel clients build the same target
-  # simultaneously, only one build action runs — both get the same result.
+  # contentAddressableStorage — how the scheduler accesses bb-storage.
+  #   Used to check the ActionCache before queuing work. If the action result
+  #   is already cached, the scheduler returns it immediately without any workers.
   # ─────────────────────────────────────────────────────────────────────────
   scheduler.json: |
     {
@@ -39,14 +39,28 @@ data:
         "listenAddresses": [":{{ .Values.scheduler.workerPort }}"],
         "authenticationPolicy": { "allow": {} }
       }],
-      "storage": {
+      "contentAddressableStorage": {
         "grpc": {
           "address": "bb-storage:{{ .Values.storage.port }}"
         }
       },
-      "executeAuthorizer": { "allow": {} },
-      "scheduler": {
-        "invocationStagedByIdAndTimeout": {}
+      "actionRouter": {
+        "simple": {
+          "platformKeyExtractor": { "action": {} },
+          "invocationKeyExtractors": [
+            { "correlatedInvocationsId": {} },
+            { "toolInvocationId": {} }
+          ],
+          "initialSizeClassAnalyzer": {
+            "defaultExecutionTimeout": "1800s",
+            "maximumExecutionTimeout": "7200s"
+          }
+        }
       },
-      "maximumMessageSizeBytes": 16777216
+      "executeAuthorizer":       { "allow": {} },
+      "modifyDrainsAuthorizer":  { "allow": {} },
+      "killOperationsAuthorizer":{ "allow": {} },
+      "synchronizeAuthorizer":   { "allow": {} },
+      "maximumMessageSizeBytes": 16777216,
+      "platformQueueWithNoWorkersTimeout": "900s"
     }

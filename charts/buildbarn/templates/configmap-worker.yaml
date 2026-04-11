@@ -7,46 +7,33 @@ metadata:
     {{- include "buildbarn.labels" . | nindent 4 }}
 data:
   # ─────────────────────────────────────────────────────────────────────────
-  # bb-worker configuration
+  # bb-worker configuration (Buildbarn v0.0.x / 2026 schema)
   #
-  # The worker is responsible for executing build actions.
-  # Each worker pod runs two containers connected by a Unix socket:
+  # bb-worker connects to:
+  #   - bb-scheduler (workerPort) to register capacity and receive actions
+  #   - bb-storage (gRPC) to download inputs from CAS and upload outputs
+  #   - bb-runner (Unix socket) to execute the actual build commands
   #
-  #   bb-worker (main container)
-  #     - Connects to scheduler to receive work
-  #     - Downloads inputs from CAS (via bb-storage)
-  #     - Sends work to bb-runner via Unix socket
-  #     - Uploads outputs back to CAS
-  #     - Reports result to scheduler
+  # blobstore: how bb-worker reaches bb-storage for CAS operations
+  # scheduler: which scheduler to register with (address = workerPort)
+  # buildDirectories: where to stage inputs and run commands
+  #   native.buildDirectoryPath — inputs extracted here before each action
+  #   native.cacheDirectoryPath — reusable input cache between actions
   #
-  #   bb-runner (companion container, binary installed by init container)
-  #     - Listens on Unix socket /worker/runner
-  #     - Receives RunRequest from bb-worker
-  #     - Executes the actual build command in the build directory
-  #     - Returns stdout, stderr, exit code
-  #
-  # Platform properties: must match what Bazel requests in .bazelrc or BUILD.
-  # If Bazel requests OSFamily=linux and workers advertise OSFamily=linux,
-  # the scheduler routes the action to these workers.
-  #
-  # buildDirectoryPath: where build inputs are extracted before running the action
-  # cacheDirectoryPath: local cache for inputs that are likely to be reused
-  #
-  # Why a Unix socket between worker and runner?
-  #   Separation of concerns: bb-worker manages the queueing, retries, and CAS
-  #   interaction. bb-runner handles only the execution. This lets Buildbarn
-  #   support different runner backends (local, Docker, gVisor) without changing
-  #   the worker logic.
+  # platformProperties must match what Bazel requests via --platforms /
+  # exec_properties in BUILD files. The scheduler uses these to route
+  # actions to the correct worker pool.
   # ─────────────────────────────────────────────────────────────────────────
   worker.json: |
     {
-      "maximumMessageSizeBytes": 16777216,
-      "schedulers": {
-        "": {
-          "endpoint": {
-            "address": "bb-scheduler:{{ .Values.scheduler.workerPort }}"
-          }
+      "blobstore": {
+        "grpc": {
+          "address": "bb-storage:{{ .Values.storage.port }}"
         }
+      },
+      "maximumMessageSizeBytes": 16777216,
+      "scheduler": {
+        "address": "bb-scheduler:{{ .Values.scheduler.workerPort }}"
       },
       "buildDirectories": [{
         "native": {
@@ -60,7 +47,7 @@ data:
           "concurrency": {{ .Values.worker.concurrency }},
           "platformProperties": {
             "properties": [
-              { "name": "OSFamily",  "value": "{{ .Values.worker.platform.os }}"  },
+              { "name": "OSFamily",  "value": "{{ .Values.worker.platform.os }}"   },
               { "name": "ISA",       "value": "{{ .Values.worker.platform.arch }}" }
             ]
           }
@@ -72,12 +59,10 @@ data:
   # bb-runner configuration
   #
   # bb-runner is the execution engine. It receives RunRequests from bb-worker
-  # and executes commands in the build directory.
+  # over a Unix socket and runs the build command as a subprocess.
   #
-  # The 'local' buildExecutor runs commands directly in the container.
-  # No Docker-in-Docker, no gVisor — just a subprocess. Correct for a lab
-  # where we trust the build actions. In production with untrusted external
-  # builds, use the Docker or gVisor executor for sandboxing.
+  # buildExecutor.local — runs commands directly in the container as subprocesses.
+  # No Docker-in-Docker, no gVisor. Correct for a trusted lab environment.
   # ─────────────────────────────────────────────────────────────────────────
   runner.json: |
     {
