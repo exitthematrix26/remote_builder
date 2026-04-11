@@ -53,6 +53,13 @@ spec:
             - name: install
               mountPath: /install
 
+        - name: init-worker-dirs
+          image: busybox:1.36
+          command: ["sh", "-c", "mkdir -p /worker/build /worker/cache"]
+          volumeMounts:
+            - name: worker-socket
+              mountPath: /worker
+
       containers:
         # ── Container 1: bb-runner ──────────────────────────────────────────
         # Listens on Unix socket /worker/runner for RunRequests from bb-worker.
