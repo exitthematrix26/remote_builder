@@ -118,3 +118,73 @@ go_sdk.download(version = "1.23.4")
 Also update label prefix in BUILD and .bazelrc from `@io_bazel_rules_go//` to `@rules_go//`.
 
 ---
+
+## Phase 2 continued
+
+### 8. Buildbarn config schema breaking changes (2025 API overhaul)
+**Symptom:** All three Buildbarn pods (`bb-storage`, `bb-scheduler`, `bb-worker`) crash immediately after pulling images with errors like:
+```
+Fatal error: Failed to unmarshal configuration: proto: (line 2:4): unknown field "blobstore"
+Fatal error: Failed to unmarshal configuration: proto: (line 16:4): unknown field "scheduler"
+```
+**Root cause:** Buildbarn overhauled its protobuf config schema in 2025. Three separate breaking changes:
+
+1. **bb-storage**: The `blobstore.cas` / `blobstore.ac` structure was replaced by top-level `contentAddressableStorage` and `actionCache` fields. The S3/MinIO backend was **removed entirely** — only local file-based storage is supported now.
+
+2. **bb-scheduler**: The `scheduler.invocationStagedByIdAndTimeout` routing algorithm was replaced by `actionRouter.simple` with explicit `platformKeyExtractor`, `invocationKeyExtractors`, and `initialSizeClassAnalyzer` sub-fields.
+
+3. **bb-worker**: The `schedulers` map was replaced by a single `scheduler.address` string field.
+
+**Fix:** Rewrite all three configmaps to match the new schema:
+```json
+// bb-storage storage.json (new)
+{
+  "grpcServers": [{ "listenAddresses": [":8980"], "authenticationPolicy": { "allow": {} } }],
+  "contentAddressableStorage": {
+    "backend": {
+      "local": {
+        "keyLocationMapOnBlockDevice": { "file": { "path": "/storage/cas/key_location_map", "sizeBytes": 16777216 } },
+        "oldBlocks": 2, "currentBlocks": 8, "newBlocks": 1,
+        "blocksOnBlockDevice": {
+          "source": { "file": { "path": "/storage/cas/blocks", "sizeBytes": 1073741824 } },
+          "spareBlocks": 1
+        },
+        "persistent": { "stateDirectoryPath": "/storage/cas/persistent_state", "minimumEpochInterval": "300s" }
+      }
+    },
+    "getAuthorizer": { "allow": {} }, "putAuthorizer": { "allow": {} }, "findMissingAuthorizer": { "allow": {} }
+  },
+  "actionCache": { ... same local structure, smaller sizes ... }
+}
+
+// bb-scheduler scheduler.json (new)
+{
+  "actionRouter": {
+    "simple": {
+      "platformKeyExtractor": { "action": {} },
+      "invocationKeyExtractors": [{ "correlatedInvocationsId": {} }, { "toolInvocationId": {} }],
+      "initialSizeClassAnalyzer": { "defaultExecutionTimeout": "1800s", "maximumExecutionTimeout": "7200s" }
+    }
+  }
+}
+
+// bb-worker worker.json (new)
+{
+  "blobstore": { "grpc": { "address": "bb-storage:8980" } },
+  "scheduler": { "address": "bb-scheduler:8982" }
+}
+```
+
+Also added an init container to `deployment-storage.yaml` to pre-create the `/storage/cas` and `/storage/ac` directory trees that `bb-storage` requires but does not create itself:
+```yaml
+initContainers:
+  - name: init-storage-dirs
+    image: busybox:1.36
+    command: ["sh", "-c", "mkdir -p /storage/cas/persistent_state && mkdir -p /storage/ac/persistent_state"]
+    volumeMounts:
+      - name: storage
+        mountPath: /storage
+```
+**Lesson:** Always check the current proto definitions at `github.com/buildbarn/bb-storage` and `github.com/buildbarn/bb-remote-execution` when upgrading image tags. The config schema version is tied to the image tag — mixing old configs with new images will always crash.
+
+---

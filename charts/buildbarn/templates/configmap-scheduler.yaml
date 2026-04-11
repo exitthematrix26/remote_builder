@@ -41,7 +41,9 @@ data:
       }],
       "contentAddressableStorage": {
         "grpc": {
-          "address": "bb-storage:{{ .Values.storage.port }}"
+          "client": {
+            "address": "bb-storage:{{ .Values.storage.port }}"
+          }
         }
       },
       "actionRouter": {

@@ -46,8 +46,9 @@ spec:
         - name: install-runner
           image: "{{ .Values.image.runnerInstaller.repository }}:{{ .Values.image.runnerInstaller.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          # The installer image copies the bb-runner binary to /install/bb-runner
-          args: ["/install/bb-runner"]
+          # The installer treats its arg as a DIRECTORY and places bb_runner inside it.
+          # Passing "/install" means the binary lands at /install/bb_runner.
+          args: ["/install"]
           volumeMounts:
             - name: install
               mountPath: /install
@@ -67,7 +68,7 @@ spec:
           # The binary is a static Go binary — doesn't need Go runtime, just Linux.
           image: busybox:1.36
           command:
-            - /install/bb-runner
+            - /install/bb_runner
             - /config/runner.json
           volumeMounts:
             - name: install
