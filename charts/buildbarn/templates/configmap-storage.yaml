@@ -7,57 +7,97 @@ metadata:
     {{- include "buildbarn.labels" . | nindent 4 }}
 data:
   # ─────────────────────────────────────────────────────────────────────────
-  # bb-storage configuration (JSON, maps to Buildbarn's ApplicationConfiguration proto)
+  # bb-storage configuration (Buildbarn v0.0.x / 2026 schema)
   #
-  # bb-storage implements two gRPC services:
-  #   ContentAddressableStorage (CAS) — stores raw build blobs by SHA-256 hash
-  #   ActionCache (AC)               — stores (action hash → result) mappings
+  # BREAKING CHANGE from older versions:
+  #   Old schema used: "blobstore": { "cas": {...}, "ac": {...} } with S3 backend
+  #   New schema uses: "contentAddressableStorage" + "actionCache" with local backend
+  #   S3/MinIO backend was REMOVED from bb-storage in early 2025.
   #
-  # Both are backed by S3/MinIO. Buildbarn uses the S3 API directly — MinIO
-  # is a drop-in. In production, change endpoint + credentials. Zero code changes.
+  # Storage backend: local file-based storage
+  #   bb-storage pre-allocates fixed-size files on disk at startup and manages
+  #   them internally as a ring-buffer of "blocks". This is faster than S3 for
+  #   a local lab and avoids the MinIO dependency for storage.
   #
-  # The blobstore section configures two independent storage backends:
-  #   cas: Content-addressed blobs (build inputs and outputs)
-  #   ac:  Action cache (maps an action's hash to its previously computed result)
+  # Layout on disk (/storage, backed by emptyDir — lost on pod restart):
+  #   /storage/cas/key_location_map  — hash → offset index ({{ .Values.storage.cas.keyLocationMapSize }} bytes)
+  #   /storage/cas/blocks            — raw blob data ({{ .Values.storage.cas.blocksSize }} bytes)
+  #   /storage/cas/persistent_state/ — epoch state (survives block rotation)
+  #   /storage/ac/key_location_map   — action hash → result offset
+  #   /storage/ac/blocks             — serialised ActionResult protos
+  #   /storage/ac/persistent_state/
   #
-  # Why separate buckets?
-  #   CAS blobs are immutable and content-addressed — the same SHA-256 hash
-  #   always means the same content. They can be shared across tenants safely.
-  #   AC entries are mutable — a new build result can replace an old one.
-  #   Separate buckets allows independent lifecycle policies (e.g., expire AC
-  #   entries after 7 days, keep CAS blobs for 30 days).
+  # Why emptyDir for the lab?
+  #   Pod restarts invalidate the cache — Bazel rebuilds from scratch.
+  #   That is acceptable here; the point is to test RBE mechanics, not
+  #   persistent cache durability. Add a PVC for durability in production.
   # ─────────────────────────────────────────────────────────────────────────
   storage.json: |
     {
-      "blobstore": {
-        "cas": {
-          "s3": {
-            "endpoint": "{{ .Values.minio.endpoint }}",
-            "accessKeyId": "{{ .Values.minio.accessKey }}",
-            "secretAccessKey": "{{ .Values.minio.secretKey }}",
-            "region": "{{ .Values.minio.region }}",
-            "bucket": "{{ .Values.minio.casBucket }}",
-            "keyPrefix": "cas/",
-            "disableSsl": true,
-            "s3ForcePathStyle": true
-          }
-        },
-        "ac": {
-          "s3": {
-            "endpoint": "{{ .Values.minio.endpoint }}",
-            "accessKeyId": "{{ .Values.minio.accessKey }}",
-            "secretAccessKey": "{{ .Values.minio.secretKey }}",
-            "region": "{{ .Values.minio.region }}",
-            "bucket": "{{ .Values.minio.acBucket }}",
-            "keyPrefix": "ac/",
-            "disableSsl": true,
-            "s3ForcePathStyle": true
-          }
-        }
-      },
       "grpcServers": [{
         "listenAddresses": [":{{ .Values.storage.port }}"],
         "authenticationPolicy": { "allow": {} }
       }],
-      "maximumMessageSizeBytes": 16777216
+      "maximumMessageSizeBytes": 16777216,
+      "contentAddressableStorage": {
+        "backend": {
+          "local": {
+            "keyLocationMapOnBlockDevice": {
+              "file": {
+                "path": "/storage/cas/key_location_map",
+                "sizeBytes": {{ .Values.storage.cas.keyLocationMapSize }}
+              }
+            },
+            "oldBlocks": 2,
+            "currentBlocks": 8,
+            "newBlocks": 1,
+            "blocksOnBlockDevice": {
+              "source": {
+                "file": {
+                  "path": "/storage/cas/blocks",
+                  "sizeBytes": {{ .Values.storage.cas.blocksSize }}
+                }
+              },
+              "spareBlocks": 1
+            },
+            "persistent": {
+              "stateDirectoryPath": "/storage/cas/persistent_state",
+              "minimumEpochInterval": "300s"
+            }
+          }
+        },
+        "getAuthorizer":          { "allow": {} },
+        "putAuthorizer":          { "allow": {} },
+        "findMissingAuthorizer":  { "allow": {} }
+      },
+      "actionCache": {
+        "backend": {
+          "local": {
+            "keyLocationMapOnBlockDevice": {
+              "file": {
+                "path": "/storage/ac/key_location_map",
+                "sizeBytes": {{ .Values.storage.ac.keyLocationMapSize }}
+              }
+            },
+            "oldBlocks": 2,
+            "currentBlocks": 8,
+            "newBlocks": 1,
+            "blocksOnBlockDevice": {
+              "source": {
+                "file": {
+                  "path": "/storage/ac/blocks",
+                  "sizeBytes": {{ .Values.storage.ac.blocksSize }}
+                }
+              },
+              "spareBlocks": 1
+            },
+            "persistent": {
+              "stateDirectoryPath": "/storage/ac/persistent_state",
+              "minimumEpochInterval": "300s"
+            }
+          }
+        },
+        "getAuthorizer": { "allow": {} },
+        "putAuthorizer": { "allow": {} }
+      }
     }

@@ -4,16 +4,11 @@
 # These are the lab defaults. Override in gitops/apps/rbe-system/application.yaml.
 # In production: separate values files per environment (lab.yaml, prod.yaml).
 
-# ── MinIO / S3 connection ──────────────────────────────────────────────────
-# All three Buildbarn components share this config for CAS and AC storage.
-# Production swap: change endpoint → S3 URL, credentials → IRSA annotations.
-minio:
-  endpoint: "http://minio.minio:9000"
-  accessKey: "minioadmin"
-  secretKey: "minioadmin"
-  region: "us-east-1"
-  casBucket: "rbe-cas"         # Content Addressable Storage blobs
-  acBucket: "rbe-ac"           # Action Cache results
+# ── NOTE: MinIO / S3 backend removed ─────────────────────────────────────
+# The S3/MinIO backend was removed from bb-storage in early 2025.
+# bb-storage now uses local file-based storage (ring-buffer of fixed blocks).
+# MinIO is no longer deployed as part of the RBE stack.
+# See docs/issues_encountered_and_fixed.md issue #8.
 
 # ── Container images ──────────────────────────────────────────────────────
 # Official Buildbarn images from GitHub Container Registry.
@@ -45,14 +40,23 @@ storage:
   replicas: 1
   port: 8980                   # Internal gRPC port (scheduler + workers connect here)
   nodeSelector:
-    pool: infra                # Runs on infra node alongside MinIO
+    pool: infra
+  # Local file storage sizes — bb-storage pre-allocates these at startup.
+  # CAS stores build blobs; AC stores action result mappings.
+  # Sized conservatively for 14GB RAM kind cluster.
+  cas:
+    keyLocationMapSize: 16777216    # 16MB  — index of hash→offset mappings
+    blocksSize: 1073741824          # 1GB   — ring-buffer of raw blobs
+  ac:
+    keyLocationMapSize: 1048576     # 1MB   — index of action hash→result offset
+    blocksSize: 67108864            # 64MB  — serialised ActionResult protos
   resources:
     requests:
       cpu: 100m
-      memory: 128Mi
+      memory: 256Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 1Gi
 
 # ── bb-scheduler ──────────────────────────────────────────────────────────
 # The RBE frontend. Bazel clients connect here with Execute + CAS requests.
