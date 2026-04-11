@@ -25,17 +25,17 @@ minio:
 image:
   storage:
     repository: ghcr.io/buildbarn/bb-storage
-    tag: latest
+    tag: "20260326T151518Z-d0c6f26"
   scheduler:
     repository: ghcr.io/buildbarn/bb-scheduler
-    tag: latest
+    tag: "20260408T084910Z-570a4d4"
   worker:
     repository: ghcr.io/buildbarn/bb-worker
-    tag: latest
+    tag: "20260408T084910Z-570a4d4"
   runnerInstaller:
     repository: ghcr.io/buildbarn/bb-runner-installer
-    tag: latest
-  pullPolicy: Always           # Always pull latest — change to IfNotPresent when pinning tags
+    tag: "20260408T084910Z-570a4d4"
+  pullPolicy: IfNotPresent     # Pinned tags — no need to re-pull on every pod start
 
 # ── bb-storage ────────────────────────────────────────────────────────────
 # Implements CAS (Content Addressable Storage) and AC (Action Cache) gRPC APIs.
