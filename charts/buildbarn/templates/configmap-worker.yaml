@@ -9,26 +9,32 @@ data:
   # ─────────────────────────────────────────────────────────────────────────
   # bb-worker configuration (Buildbarn v0.0.x / 2026 schema)
   #
-  # bb-worker connects to:
-  #   - bb-scheduler (workerPort) to register capacity and receive actions
-  #   - bb-storage (gRPC) to download inputs from CAS and upload outputs
-  #   - bb-runner (Unix socket) to execute the actual build commands
+  # blobstore: BlobstoreConfiguration — has two sub-fields:
+  #   contentAddressableStorage: how to reach CAS on bb-storage
+  #   actionCache: how to reach AC on bb-storage
+  #   Both use grpc.client.address — NOT a top-level grpc.address.
   #
-  # blobstore: how bb-worker reaches bb-storage for CAS operations
-  # scheduler: which scheduler to register with (address = workerPort)
-  # buildDirectories: where to stage inputs and run commands
-  #   native.buildDirectoryPath — inputs extracted here before each action
-  #   native.cacheDirectoryPath — reusable input cache between actions
+  # scheduler: ClientConfiguration — address of bb-scheduler worker port
   #
-  # platformProperties must match what Bazel requests via --platforms /
-  # exec_properties in BUILD files. The scheduler uses these to route
-  # actions to the correct worker pool.
+  # buildDirectories[].runners[].platform: build.bazel.remote.execution.v2.Platform
+  #   Uses "platform.properties" NOT "platformProperties" (different proto message)
   # ─────────────────────────────────────────────────────────────────────────
   worker.json: |
     {
       "blobstore": {
-        "grpc": {
-          "address": "bb-storage:{{ .Values.storage.port }}"
+        "contentAddressableStorage": {
+          "grpc": {
+            "client": {
+              "address": "bb-storage:{{ .Values.storage.port }}"
+            }
+          }
+        },
+        "actionCache": {
+          "grpc": {
+            "client": {
+              "address": "bb-storage:{{ .Values.storage.port }}"
+            }
+          }
         }
       },
       "maximumMessageSizeBytes": 16777216,
@@ -45,7 +51,7 @@ data:
             "address": "unix:///worker/runner"
           },
           "concurrency": {{ .Values.worker.concurrency }},
-          "platformProperties": {
+          "platform": {
             "properties": [
               { "name": "OSFamily",  "value": "{{ .Values.worker.platform.os }}"   },
               { "name": "ISA",       "value": "{{ .Values.worker.platform.arch }}" }
@@ -56,22 +62,22 @@ data:
     }
 
   # ─────────────────────────────────────────────────────────────────────────
-  # bb-runner configuration
+  # bb-runner configuration (Buildbarn v0.0.x / 2026 schema)
   #
   # bb-runner is the execution engine. It receives RunRequests from bb-worker
-  # over a Unix socket and runs the build command as a subprocess.
+  # over a Unix socket and runs build commands as subprocesses.
   #
-  # buildExecutor.local — runs commands directly in the container as subprocesses.
-  # No Docker-in-Docker, no gVisor. Correct for a trusted lab environment.
+  # BREAKING CHANGES from older versions:
+  #   - "buildExecutor" field removed — the runner IS the executor, no sub-config
+  #   - Unix socket path uses "listenPaths" NOT "listenAddresses"
+  #   - "buildDirectoryPath" is a top-level field, not nested
+  #   - "maximumMessageSizeBytes" moved to global config (omit here)
   # ─────────────────────────────────────────────────────────────────────────
   runner.json: |
     {
       "grpcServers": [{
-        "listenAddresses": ["unix:///worker/runner"],
+        "listenPaths": ["/worker/runner"],
         "authenticationPolicy": { "allow": {} }
       }],
-      "buildExecutor": {
-        "local": {}
-      },
-      "maximumMessageSizeBytes": 16777216
+      "buildDirectoryPath": "/worker/build"
     }
