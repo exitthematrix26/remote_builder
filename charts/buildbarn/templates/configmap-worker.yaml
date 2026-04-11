@@ -58,8 +58,8 @@ data:
           "concurrency": {{ .Values.worker.concurrency }},
           "platform": {
             "properties": [
-              { "name": "OSFamily",  "value": "{{ .Values.worker.platform.os }}"   },
-              { "name": "ISA",       "value": "{{ .Values.worker.platform.arch }}" }
+              { "name": "ISA",       "value": "{{ .Values.worker.platform.arch }}" },
+              { "name": "OSFamily",  "value": "{{ .Values.worker.platform.os }}"   }
             ]
           }
         }]

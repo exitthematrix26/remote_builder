@@ -21,7 +21,10 @@
 #   Our workers advertise OSFamily=linux,ISA=amd64 (set in values.yaml).
 #
 build:rbe --remote_executor=grpc://localhost:8981
-build:rbe --remote_cache=grpc://localhost:8981
+# --remote_cache is intentionally omitted: the scheduler proxies all cache
+# operations to bb-storage. Having a separate --remote_cache pointing at the
+# same endpoint causes Bazel 9 to merge capabilities from both roles, resulting
+# in empty CacheCapabilities and a SHA256 "not supported" error.
 build:rbe --remote_timeout=120
 build:rbe --jobs=4
 build:rbe --build_event_text_file=/tmp/bep.txt
