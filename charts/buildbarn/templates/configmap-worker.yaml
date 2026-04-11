@@ -41,6 +41,8 @@ data:
       "scheduler": {
         "address": "bb-scheduler:{{ .Values.scheduler.workerPort }}"
       },
+      "inputDownloadConcurrency": 4,
+      "outputUploadConcurrency": 4,
       "buildDirectories": [{
         "native": {
           "buildDirectoryPath": "/worker/build",
