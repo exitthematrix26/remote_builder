@@ -1,7 +1,27 @@
 # Cluster Info — What's Running and Why
 
-Current state: **Phase 1 complete.** Three namespaces are live.
-Phase 2 (MinIO + Buildbarn) is written but not yet pushed.
+Current state: **Phase 2 complete.** Buildbarn RBE stack is live.
+
+---
+
+## Force Argo CD to sync immediately (don't wait 3 minutes)
+
+```bash
+# Start port-forward if not already running (runs in background)
+kubectl port-forward svc/argocd-server -n argocd 8080:80 &
+
+# Force sync a specific app
+argocd app sync rbe-system --force
+
+# Force sync all apps
+argocd app sync --all --force
+
+# Watch sync status
+argocd app list
+```
+
+Use `--force` after every `git push` to get instant deployment instead of waiting
+for Argo CD's default 3-minute polling interval.
 
 ---
 

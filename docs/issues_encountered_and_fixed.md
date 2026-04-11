@@ -188,3 +188,93 @@ initContainers:
 **Lesson:** Always check the current proto definitions at `github.com/buildbarn/bb-storage` and `github.com/buildbarn/bb-remote-execution` when upgrading image tags. The config schema version is tied to the image tag — mixing old configs with new images will always crash.
 
 ---
+
+### 9. bb-scheduler grpc storage field requires nested `client` object
+**Symptom:** `bb-scheduler` crashloops: `proto: (line 33:10): unknown field "address"`
+**Root cause:** `contentAddressableStorage.grpc` is type `GrpcBlobAccessConfiguration` which wraps a `ClientConfiguration`. The address is not directly inside `grpc{}` — it's inside `grpc.client{}`.
+**Fix:**
+```json
+// Wrong:
+"contentAddressableStorage": { "grpc": { "address": "bb-storage:8980" } }
+// Correct:
+"contentAddressableStorage": { "grpc": { "client": { "address": "bb-storage:8980" } } }
+```
+
+---
+
+### 10. bb-runner-installer arg is a destination DIRECTORY not a file path
+**Symptom:** Worker init container fails: `open /install/bb-runner/bb_runner: no such file or directory`
+**Root cause:** The installer takes its arg as a directory path and places the binary named `bb_runner` inside it. Passing `/install/bb-runner` tries to write to a non-existent subdirectory.
+**Fix:** Pass `/install` so binary lands at `/install/bb_runner`. Update runner container command:
+```yaml
+initContainers:
+  - args: ["/install"]             # was ["/install/bb-runner"]
+containers:
+  - name: bb-runner
+    command: ["/install/bb_runner"] # was /install/bb-runner (wrong path + wrong name)
+```
+
+---
+
+### 11. bb-runner config: `buildExecutor` removed, Unix socket uses `listenPaths`
+**Symptom:** bb-runner crashloops: `proto: unknown field "buildExecutor"`
+**Root cause:** The runner IS the executor — no `buildExecutor` sub-config exists. Unix socket paths use `listenPaths` not `listenAddresses` (which is TCP only).
+**Fix:**
+```json
+// Correct runner.json:
+{
+  "grpcServers": [{ "listenPaths": ["/worker/runner"], "authenticationPolicy": { "allow": {} } }],
+  "buildDirectoryPath": "/worker/build"
+}
+```
+
+---
+
+### 12. bb-worker blobstore structure: `contentAddressableStorage` + `actionCache` sub-fields
+**Symptom:** bb-worker crashloops: `proto: unknown field "grpc"`
+**Root cause:** The worker's `blobstore` field is `BlobstoreConfiguration` (not `BlobAccessConfiguration`). It has two sub-fields; each uses `grpc.client.address`.
+**Fix:**
+```json
+"blobstore": {
+  "contentAddressableStorage": { "grpc": { "client": { "address": "bb-storage:8980" } } },
+  "actionCache":                { "grpc": { "client": { "address": "bb-storage:8980" } } }
+}
+```
+
+---
+
+### 13. bb-worker requires `inputDownloadConcurrency` and `outputUploadConcurrency` > 0
+**Symptom:** bb-worker crashes: `Nonpositive input download concurrency: 0`
+**Root cause:** These fields default to 0 which is explicitly rejected. Must be positive.
+**Fix:** Add to `worker.json`: `"inputDownloadConcurrency": 4, "outputUploadConcurrency": 4`
+
+---
+
+### 14. bb-worker native build dir requires cache policy and size limits
+**Symptom:** bb-worker crashes: `Failed to create eviction set for cache directory: Unknown cache replacement policy`
+**Root cause:** `cacheDirectoryPath` requires `cacheReplacementPolicy`, `maximumCacheFileCount`, and `maximumCacheSizeBytes` to be explicitly set.
+**Fix:**
+```json
+"native": {
+  "buildDirectoryPath": "/worker/build",
+  "cacheDirectoryPath": "/worker/cache",
+  "maximumCacheFileCount": 10000,
+  "maximumCacheSizeBytes": 536870912,
+  "cacheReplacementPolicy": "LEAST_RECENTLY_USED"
+}
+```
+
+---
+
+### 15. Storage and worker directories must be pre-created via init containers
+**Symptom:** bb-storage and bb-worker crash on startup — can't open files/directories that don't exist yet.
+**Root cause:** Both require directory trees to exist before they start. `emptyDir` volumes are blank.
+**Fix:** Init containers in both deployments:
+```yaml
+initContainers:
+  - name: init-dirs
+    image: busybox:1.36
+    command: ["sh", "-c", "mkdir -p /storage/cas/persistent_state /storage/ac/persistent_state"]
+```
+
+---
