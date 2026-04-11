@@ -46,7 +46,10 @@ data:
       "buildDirectories": [{
         "native": {
           "buildDirectoryPath": "/worker/build",
-          "cacheDirectoryPath": "/worker/cache"
+          "cacheDirectoryPath": "/worker/cache",
+          "maximumCacheFileCount": 10000,
+          "maximumCacheSizeBytes": 536870912,
+          "cacheReplacementPolicy": "LEAST_RECENTLY_USED"
         },
         "runners": [{
           "endpoint": {
