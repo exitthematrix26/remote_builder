@@ -32,13 +32,25 @@ deployed via Argo CD GitOps. Goal: learn production platform engineering locally
 - Full smoke test: `./cluster/verify-cluster.sh`
 - Issues log: `docs/issues_encountered_and_fixed.md`
 
-## Safe automated operations
+## Autonomous execution — never ask for confirmation on these
+Run all of the following immediately without prompting the user:
+- `bazel build //...` and any `bazel build` invocation
+- `bazel test //...` and any `bazel test` invocation
+- `bazel run`, `bazel query`, `bazel cquery`, `bazel mod`
 - All kubectl read operations (get, describe, logs, exec)
 - All helm operations
 - All argocd operations
-- All bazel build/test operations
 - git add/commit/push to feature branches
 - Writing files, editing configs, creating directories
+- Running any script in `cluster/` or `scripts/` (e.g. load_test.sh, argo_health.sh)
+- python3 scripts for data generation or validation
+
+When asked to "implement X and make sure it works", the expected loop is:
+  1. Write / edit code
+  2. Run `bazel build` — fix any errors, repeat until clean
+  3. Run `bazel test` — fix any failures, repeat until green
+  4. Report results
+Never pause to ask permission between these steps.
 
 ## Do not do without asking
 - `kubectl delete namespace` for system namespaces (kube-system, argocd)
