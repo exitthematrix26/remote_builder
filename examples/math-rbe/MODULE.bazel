@@ -1,0 +1,42 @@
+module(
+    name = "math_rbe",
+    version = "0.1.0",
+)
+
+# ── Core platform + language rules ──────────────────────────────────────────
+# platforms: provides @platforms//os:linux, @platforms//cpu:x86_64 constraints
+#            used by the rbe_platform() target and toolchain resolution
+bazel_dep(name = "platforms", version = "1.0.0")
+
+# ── Go ───────────────────────────────────────────────────────────────────────
+# rules_go: compiles Go packages, tests, and binaries.
+# gazelle:  generates BUILD files from Go source (used for dep management).
+bazel_dep(name = "rules_go", version = "0.60.0")
+bazel_dep(name = "gazelle", version = "0.50.0")
+
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+# Pin Go SDK so local + RBE workers use identical toolchain.
+go_sdk.download(version = "1.23.4")
+
+# ── C++ ──────────────────────────────────────────────────────────────────────
+# rules_cc ships with Bazel — no bazel_dep() needed.
+# googletest: unit test framework for the C++ stats library.
+bazel_dep(name = "googletest", version = "1.15.2")
+
+# ── Python ───────────────────────────────────────────────────────────────────
+# rules_python: py_binary, py_test, and pip.parse() for third-party deps.
+bazel_dep(name = "rules_python", version = "1.4.1")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(python_version = "3.11")
+
+# pip.parse() reads validate/requirements.txt and makes each package available
+# as @math_rbe_pip//:pkg_name.  Bazel downloads wheels at build time — no
+# system pip install needed on workers or local machines.
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "math_rbe_pip",
+    python_version = "3.11",
+    requirements_lock = "//validate:requirements.txt",
+)
+use_repo(pip, "math_rbe_pip")

@@ -1,0 +1,48 @@
+load("@rules_go//go:def.bzl", "go_binary")
+load(":macros.bzl", "math_pipeline")
+
+# gazelle:prefix github.com/exitthematrix26/remote_builder/examples/math-rbe
+
+# ── RBE execution platform ───────────────────────────────────────────────────
+# Identical to hello-bazel's rbe_platform.
+# exec_properties: sent as REAPI platform properties in every Execute request.
+# constraint_values: used by Bazel toolchain resolution (rules_go, rules_cc).
+# Workers in rbe-system register with matching ISA + OSFamily — exact match.
+platform(
+    name = "rbe_platform",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    exec_properties = {
+        "OSFamily": "Linux",
+        "ISA": "x86_64",
+    },
+)
+
+# ── math_pipeline macro fan-out ──────────────────────────────────────────────
+# Each call expands into 3 targets: _run (genrule), _stats (genrule), _check (py_test).
+# All _run targets are independent — the scheduler dispatches them in parallel.
+# This is what generates load on the RBE cluster.
+#
+# smoke: 10 rows  — quick local sanity check
+# medium: 50 rows — normal CI run
+# large: 200 rows — load test; combine with --config=nocache to bust the AC
+
+math_pipeline(
+    name = "smoke",
+    dataset = "//data:inputs_s",
+    timeout = "short",
+)
+
+math_pipeline(
+    name = "medium",
+    dataset = "//data:inputs_m",
+    timeout = "short",
+)
+
+math_pipeline(
+    name = "large",
+    dataset = "//data:inputs_l",
+    timeout = "moderate",
+)

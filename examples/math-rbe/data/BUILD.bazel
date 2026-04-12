@@ -1,0 +1,41 @@
+# data/BUILD.bazel — exposes CSV input files as Bazel targets.
+#
+# filegroup() is the standard way to make data files addressable as labels.
+# Consumers reference them with data = ["//data:inputs_s"] and access the
+# actual path at runtime via $(location //data:inputs_s) in genrules, or
+# runfiles in py_test.
+#
+# WHY separate targets per file?
+# The math_pipeline macro generates one genrule per dataset.  Each genrule
+# declares its specific input as srcs = [dataset], so Bazel knows exactly
+# which file each action depends on.  If only inputs_s.csv changes, only
+# smoke_run is invalidated — medium and large hits stay cached.
+
+filegroup(
+    name = "inputs_s",
+    srcs = ["inputs_s.csv"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "inputs_m",
+    srcs = ["inputs_m.csv"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "inputs_l",
+    srcs = ["inputs_l.csv"],
+    visibility = ["//visibility:public"],
+)
+
+# all_inputs: convenience group for scripts that want to pass all datasets.
+filegroup(
+    name = "all_inputs",
+    srcs = [
+        ":inputs_s",
+        ":inputs_m",
+        ":inputs_l",
+    ],
+    visibility = ["//visibility:public"],
+)

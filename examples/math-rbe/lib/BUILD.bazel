@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# go_library compiles lib/calc.go into a reusable package.
+# importpath must match the module path in MODULE.bazel + directory.
+# Other targets in this workspace depend on it with deps = ["//lib:mathlib"].
+go_library(
+    name = "mathlib",
+    srcs = ["calc.go"],
+    importpath = "github.com/exitthematrix26/remote_builder/examples/math-rbe/lib",
+    # visibility: cmd/ and validate/ need to import this library.
+    visibility = ["//visibility:public"],
+)
+
+# go_test compiles calc_test.go + embeds mathlib (the package under test).
+# `embed` is Bazel's way of saying "include this library's sources in the test binary"
+# — equivalent to an internal test package in plain Go.
+#
+# When run with --config=rbe this becomes one RBE action dispatched to a worker.
+go_test(
+    name = "mathlib_test",
+    srcs = ["calc_test.go"],
+    embed = [":mathlib"],
+    pure = "on",  # CGO_ENABLED=0 — worker image doesn't need gcc for Go tests
+)

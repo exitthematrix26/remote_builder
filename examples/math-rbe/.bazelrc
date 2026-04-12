@@ -1,0 +1,43 @@
+# ── Local build (default) ────────────────────────────────────────────────────
+# bazel build //...              → local execution, no RBE
+# bazel test  //...              → local test runner
+
+# ── Remote build via RBE ─────────────────────────────────────────────────────
+# Usage: bazel build --config=rbe //...
+#        bazel test  --config=rbe //...
+#
+# Prerequisites:
+#   kubectl port-forward svc/bb-scheduler 8981:8981 -n rbe-system &
+#   kubectl port-forward svc/bb-storage   8980:8980 -n rbe-system &
+#
+# Two-endpoint topology (same as hello-bazel):
+#   --remote_executor → bb-scheduler:8981  (Execute RPC routing)
+#   --remote_cache    → bb-storage:8980    (CAS + AC reads/writes)
+#
+build:rbe --remote_executor=grpc://localhost:8981
+build:rbe --remote_cache=grpc://localhost:8980
+build:rbe --remote_timeout=120
+# 50 jobs saturates 2 workers × max_concurrency without overwhelming the scheduler.
+# Raise to 100 once KEDA autoscaling is live in Phase 5.
+build:rbe --jobs=50
+build:rbe --build_event_text_file=/tmp/bep_mathrbe.txt
+build:rbe --remote_instance_name=
+
+# Execution platform: //:rbe_platform publishes exec_properties that the
+# scheduler matches against worker registrations (exact string match).
+build:rbe --extra_execution_platforms=//:rbe_platform
+build:rbe --host_platform=//:rbe_platform
+build:rbe --platforms=//:rbe_platform
+
+# ── Cache-busting config (forces fresh remote execution) ─────────────────────
+# Usage: bazel build --config=rbe --config=nocache //...
+# Skips the Action Cache — every action is re-executed on workers.
+# Use this in load_test.sh to generate cache misses and trigger autoscaling.
+build:nocache --noremote_accept_cached
+
+# ── Verbose remote (debug) ───────────────────────────────────────────────────
+# Usage: bazel build --config=rbe-verbose //...
+build:rbe-verbose --config=rbe
+build:rbe-verbose --execution_log_binary_file=/tmp/exec_mathrbe.log
+build:rbe-verbose --verbose_failures
+build:rbe-verbose --subcommands=pretty_print

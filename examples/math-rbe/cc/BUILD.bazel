@@ -1,0 +1,39 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+# cc_library compiles stats.cc and exposes stats.h as a public header.
+#
+# Key Bazel C++ concepts demonstrated here:
+#   hdrs:  headers that consumers of this library can #include.
+#          Bazel validates that only hdrs-listed files are included by dependents.
+#   srcs:  implementation files compiled as separate actions (stats.cc → stats.o).
+#   strip_include_prefix: makes includes relative to the workspace root so
+#          #include "cc/stats.h" works from any package.
+cc_library(
+    name = "stats",
+    hdrs = ["stats.h"],
+    srcs = ["stats.cc"],
+    strip_include_prefix = "/examples/math-rbe",
+    visibility = ["//visibility:public"],
+)
+
+# cc_binary links stats_main.cc against the stats library → executable.
+# Exposed as a tool in the math_pipeline macro's _stats genrule.
+cc_binary(
+    name = "stats_bin",
+    srcs = ["stats_main.cc"],
+    deps = [":stats"],
+    visibility = ["//visibility:public"],
+)
+
+# cc_test links stats_test.cc + googletest.
+# Each cc_test is compiled and linked as one RBE action.
+# Run locally: bazel test //cc:stats_test
+# Run remotely: bazel test --config=rbe //cc:stats_test
+cc_test(
+    name = "stats_test",
+    srcs = ["stats_test.cc"],
+    deps = [
+        ":stats",
+        "@googletest//:gtest_main",
+    ],
+)

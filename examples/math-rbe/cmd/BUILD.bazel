@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_binary")
+
+# go_binary produces a standalone executable.
+# deps wires in the mathlib go_library from //lib.
+# pure = "on": no CGO — the runner reads/writes files and does arithmetic;
+# there's no reason to link against libc, and workers may lack gcc headers.
+go_binary(
+    name = "runner",
+    srcs = ["main.go"],
+    deps = ["//lib:mathlib"],
+    importpath = "github.com/exitthematrix26/remote_builder/examples/math-rbe/cmd",
+    pure = "on",
+    visibility = ["//visibility:public"],
+)
