@@ -342,3 +342,9 @@ This is standard practice for containerized RBE builds — pure Go binaries have
 
 ---
 
+
+### 20. Worker image aligned to EngFlow canonical RBE base
+**Change (not a bug):** Replaced `ubuntu:22.04` with `gcr.io/bazel-public/ubuntu2004-java11:latest` as the bb-runner container image.
+**Why:** EngFlow's own example repo ([EngFlow/example](https://github.com/EngFlow/example)) uses this image as the `container-image` exec_property. It is the canonical Bazel RBE base image — includes gcc, clang/LLVM-10, python3, git, Java 11, and standard coreutils. Using it makes the lab environment match EngFlow production workers.
+**Also:** Platform exec_properties updated to match EngFlow convention: `"OSFamily": "Linux"` (capital L), `"ISA": "x86_64"` — must match exactly between worker registration (`values.yaml`) and Bazel platform (`BUILD`) since Buildbarn scheduler uses exact string matching.
+
