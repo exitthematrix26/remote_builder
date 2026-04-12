@@ -41,10 +41,11 @@ build:rbe --build_event_text_file=/tmp/bep.txt
 # Explicit empty instance name — must match on both scheduler and storage sides
 build:rbe --remote_instance_name=
 
-# Tell Bazel this build targets linux/amd64 — must match worker platform properties
-# With Bzlmod (MODULE.bazel) the label uses @rules_go instead of @io_bazel_rules_go
-build:rbe --platforms=@rules_go//go/toolchain:linux_amd64
-build:rbe --extra_execution_platforms=@rules_go//go/toolchain:linux_amd64
+# Execution platform: //:rbe_platform defines exec_properties {ISA=amd64, OSFamily=linux}
+# which Bazel includes as REAPI platform properties in Execute requests.
+# Workers register with the same properties — the scheduler uses exact matching.
+# --extra_execution_platforms makes this platform available during exec platform resolution.
+build:rbe --extra_execution_platforms=//:rbe_platform
 
 # ── Verbose remote (debug) ───────────────────────────────────────────────────
 # Usage: bazel build --config=rbe-verbose //...

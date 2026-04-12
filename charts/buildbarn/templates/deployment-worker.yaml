@@ -75,8 +75,10 @@ spec:
 
       containers:
         # ── bb-runner ─────────────────────────────────────────────────────────
+        # ubuntu provides bash + coreutils required by genrule wrapper scripts.
+        # Bazel uploads all other build inputs (toolchains, sources) via CAS.
         - name: bb-runner
-          image: busybox:1.36
+          image: ubuntu:22.04
           command:
             - /install/bb_runner
             - /config/runner.json

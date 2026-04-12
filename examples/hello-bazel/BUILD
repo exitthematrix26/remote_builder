@@ -2,8 +2,24 @@ load("@rules_go//go:def.bzl", "go_binary")
 
 # gazelle:prefix github.com/exitthematrix26/remote_builder/examples/hello-bazel
 
+# RBE execution platform — exec_properties become REAPI platform properties in Execute requests.
+# Workers register ISA=amd64, OSFamily=linux; actions must match exactly for dispatch.
+platform(
+    name = "rbe_platform",
+    exec_properties = {
+        "ISA": "amd64",
+        "OSFamily": "linux",
+    },
+)
+
 go_binary(
     name = "hello",
     srcs = ["main.go"],
     # visibility = ["//visibility:public"] only needed if other packages import this
+)
+
+genrule(
+    name = "echo_test",
+    outs = ["echo_output.txt"],
+    cmd = "echo 'hello from rbe' > $@",
 )
