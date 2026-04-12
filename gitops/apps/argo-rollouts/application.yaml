@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# argo-rollouts — Argo CD Application
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Installs the Argo Rollouts controller and CRDs into the argo-rollouts namespace.
+# Argo Rollouts extends Kubernetes with progressive delivery primitives:
+#   - Rollout resource (replaces Deployment with canary/blue-green strategies)
+#   - AnalysisTemplate / AnalysisRun (automated promotion/rollback decisions)
+#   - experiment / preview services
+#
+# Why we use it for bb-worker:
+#   Workers are the most frequently updated component — new toolchain images,
+#   runtime upgrades, concurrency tuning. A Deployment does a rolling replace
+#   of all pods simultaneously, which can take down the entire worker pool if
+#   the new image is broken. Argo Rollouts lets us canary 25% of workers first,
+#   run an AnalysisTemplate against real build traffic, then promote or rollback.
+#
+#   This is exactly how a platform team at EngFlow/Google deploys worker updates.
+#
+# Sync wave -1: must be healthy BEFORE rbe-system (wave 2) creates a Rollout.
+# The Rollout CRDs are installed by this chart — if they don't exist when
+# rbe-system syncs, Argo CD will error on the unknown resource kind.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    app.kubernetes.io/part-of: rbe-lab
+    app.kubernetes.io/component: progressive-delivery
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    targetRevision: "2.39.3"   # Pin to avoid surprise upgrades; update intentionally
+
+    helm:
+      values: |
+        # Install CRDs as part of the Helm chart (default: true)
+        installCRDs: true
+
+        # Resource limits sized for the lab — rollouts controller is lightweight
+        controller:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+        # Dashboard — optional UI for inspecting Rollouts + AnalysisRuns
+        # Access: kubectl port-forward svc/argo-rollouts-dashboard -n argo-rollouts 3100:3100
+        dashboard:
+          enabled: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true   # Required for Argo Rollouts CRDs (large annotations)

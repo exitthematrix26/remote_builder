@@ -13,9 +13,9 @@
 #   wraps the official ghcr.io/buildbarn/* container images. This is exactly
 #   what every real platform team does.
 #
-# Sync wave 2: depends on MinIO (wave 1) being healthy.
-# bb-storage connects to MinIO on startup — if MinIO isn't ready, bb-storage
-# fails to initialize and the scheduler can't route any work.
+# Sync wave 2: depends on argo-rollouts (wave -1) being healthy.
+# bb-worker is now a Rollout resource (argoproj.io/v1alpha1 CRD).
+# The Rollout CRDs must exist before this app syncs or Argo CD will error.
 # ─────────────────────────────────────────────────────────────────────────────
 
 apiVersion: argoproj.io/v1alpha1
@@ -77,3 +77,4 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true

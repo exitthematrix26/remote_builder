@@ -1,0 +1,56 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AnalysisTemplate — bb-worker canary promotion gate
+#
+# Used by the Rollout in rollout-worker.yaml during canary steps.
+# Status: ACTIVE — hooked into the Rollout strategy in Phase 4.
+#
+# This template queries Prometheus for worker-level health signals.
+# Argo Rollouts will run an AnalysisRun at each canary pause step.
+# If the metric fails (error rate too high), the rollout is automatically
+# aborted and old pods are kept.
+#
+# To activate: uncomment the `analysis` block in rollout-worker.yaml's
+# canary steps and ensure Prometheus is scraping bb-scheduler metrics
+# (Phase 4 — kube-prometheus-stack).
+#
+# How to test manually once Prometheus is up:
+#   kubectl argo rollouts get rollout bb-worker -n rbe-system
+#   # Shows current analysis run status alongside step progress
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: bb-worker-health
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "buildbarn.labels" . | nindent 4 }}
+spec:
+  # How long to collect metrics before making a pass/fail decision.
+  metrics:
+    - name: worker-error-rate
+      # ── Phase 4: Prometheus metric ────────────────────────────────────────
+      # Queries the fraction of Execute RPCs returning errors.
+      # bb-scheduler exposes GRPC server metrics once the global.diagnosticsHttpServer
+      # is configured with enablePrometheus: true (add in Phase 4).
+      #
+      # Until Prometheus is deployed, this template is installed but not
+      # referenced by the Rollout steps — it is a no-op.
+      interval: 30s
+      count: 3           # Run 3 measurements (90s total window)
+      failureLimit: 1    # Allow 1 bad sample before failing the analysis
+      successCondition: result < 0.05   # < 5% error rate = healthy
+      provider:
+        prometheus:
+          # Prometheus address — kube-prometheus-stack service (Phase 4)
+          address: http://prometheus-kube-prometheus-prometheus.monitoring:9090
+          query: |
+            sum(rate(grpc_server_handled_total{
+              namespace="rbe-system",
+              grpc_service="build.bazel.remote.execution.v2.Execution",
+              grpc_code!="OK"
+            }[2m]))
+            /
+            sum(rate(grpc_server_handled_total{
+              namespace="rbe-system",
+              grpc_service="build.bazel.remote.execution.v2.Execution"
+            }[2m]))
