@@ -89,8 +89,8 @@ worker:
   # In .bazelrc: --extra_execution_platforms=//:rbe_platform
   # In BUILD:    exec_properties = {"OSFamily": "linux"}
   platform:
-    os: linux
-    arch: amd64
+    os: Linux      # capital L — matches EngFlow's OSFamily convention
+    arch: x86_64   # matches EngFlow's ISA convention
   nodeSelector:
     pool: rbe-workers
   # The taint on the worker node — pods need this toleration to land there.

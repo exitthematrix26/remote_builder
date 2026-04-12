@@ -75,10 +75,12 @@ spec:
 
       containers:
         # ── bb-runner ─────────────────────────────────────────────────────────
-        # ubuntu provides bash + coreutils required by genrule wrapper scripts.
-        # Bazel uploads all other build inputs (toolchains, sources) via CAS.
+        # gcr.io/bazel-public/ubuntu2004-java11 is the canonical Bazel RBE base image.
+        # Used by EngFlow's own example repo as the container-image exec_property.
+        # Includes: bash, gcc, clang/LLVM-10, python3, git, Java 11, and standard
+        # coreutils — the same environment EngFlow workers run actions in.
         - name: bb-runner
-          image: ubuntu:22.04
+          image: gcr.io/bazel-public/ubuntu2004-java11:latest
           command:
             - /install/bb_runner
             - /config/runner.json

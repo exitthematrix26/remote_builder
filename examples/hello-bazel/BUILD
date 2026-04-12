@@ -12,8 +12,8 @@ platform(
         "@platforms//cpu:x86_64",
     ],
     exec_properties = {
-        "ISA": "amd64",
-        "OSFamily": "linux",
+        "OSFamily": "Linux",   # capital L — matches EngFlow convention and worker registration
+        "ISA": "x86_64",
     },
 )
 
