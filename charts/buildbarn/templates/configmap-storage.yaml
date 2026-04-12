@@ -45,9 +45,11 @@ data:
             "keyLocationMapOnBlockDevice": {
               "file": {
                 "path": "/storage/cas/key_location_map",
-                "sizeBytes": {{ .Values.storage.cas.keyLocationMapSize }}
+                "sizeBytes": {{ .Values.storage.cas.keyLocationMapSize | int64 }}
               }
             },
+            "keyLocationMapMaximumGetAttempts": 16,
+            "keyLocationMapMaximumPutAttempts": 64,
             "oldBlocks": 2,
             "currentBlocks": 8,
             "newBlocks": 1,
@@ -55,7 +57,7 @@ data:
               "source": {
                 "file": {
                   "path": "/storage/cas/blocks",
-                  "sizeBytes": {{ .Values.storage.cas.blocksSize }}
+                  "sizeBytes": {{ .Values.storage.cas.blocksSize | int64 }}
                 }
               },
               "spareBlocks": 1
@@ -76,9 +78,11 @@ data:
             "keyLocationMapOnBlockDevice": {
               "file": {
                 "path": "/storage/ac/key_location_map",
-                "sizeBytes": {{ .Values.storage.ac.keyLocationMapSize }}
+                "sizeBytes": {{ .Values.storage.ac.keyLocationMapSize | int64 }}
               }
             },
+            "keyLocationMapMaximumGetAttempts": 16,
+            "keyLocationMapMaximumPutAttempts": 64,
             "oldBlocks": 2,
             "currentBlocks": 8,
             "newBlocks": 1,
@@ -86,7 +90,7 @@ data:
               "source": {
                 "file": {
                   "path": "/storage/ac/blocks",
-                  "sizeBytes": {{ .Values.storage.ac.blocksSize }}
+                  "sizeBytes": {{ .Values.storage.ac.blocksSize | int64 }}
                 }
               },
               "spareBlocks": 1
