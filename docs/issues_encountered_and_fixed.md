@@ -278,3 +278,67 @@ initContainers:
 ```
 
 ---
+
+### 16. bb-storage local backend: missing keyLocationMap attempt counts
+**Symptom:** `FAILED_PRECONDITION: Failed to obtain action: Object not found` from bb-scheduler. ByteStream/Write to bb-storage returned `committed_size` success but all subsequent reads returned `NOT_FOUND`.
+**Root cause:** The `local` storage backend proto has `keyLocationMapMaximumGetAttempts` and `keyLocationMapMaximumPutAttempts` fields that default to **0** in proto3. With 0 attempts, the open-addressing hash table never probes any slots — writes store blob data in the blocks file but never write the key→location entry, so all lookups fail immediately.
+**Fix:** Add to both CAS and AC local backends in `configmap-storage.yaml`:
+```json
+"keyLocationMapMaximumGetAttempts": 16,
+"keyLocationMapMaximumPutAttempts": 64
+```
+These match the reference config in `bb-deployments/docker-compose/config/storage.jsonnet`.
+
+**Also fixed:** Helm renders large YAML integers as Go float64, producing scientific notation in JSON (`1.6777216e+07` instead of `16777216`). Use `| int64` in templates:
+```yaml
+"sizeBytes": {{ .Values.storage.cas.keyLocationMapSize | int64 }}
+```
+
+---
+
+### 17. bb-runner container uses busybox — no /bin/bash for genrules
+**Symptom:** Remote action fails: `Invalid Argument: Failed to run command: Failed to start process: fork/exec /bin/bash: no such file or directory`
+**Root cause:** The bb-runner container was set to `busybox:1.36` which has `/bin/sh` (ash) but not `/bin/bash`. Bazel genrule wrapper scripts use bash.
+**Fix:** Change bb-runner container image to `ubuntu:22.04`:
+```yaml
+- name: bb-runner
+  image: ubuntu:22.04
+```
+Bazel uploads all toolchain inputs (Go SDK, etc.) via CAS, so only `bash` + basic coreutils are needed in the worker image.
+
+---
+
+### 18. RBE platform: workers vs. action platform mismatch (empty platform {})
+**Symptom:** `FAILED_PRECONDITION: No workers exist for instance name prefix "" platform {}` — even though workers were running.
+**Root cause (two parts):**
+1. The old `.bazelrc` used `--extra_execution_platforms=@rules_go//go/toolchain:linux_amd64` which has no `exec_properties`. Bazel sent `platform {}` (empty) in Execute requests. Workers registered with `{ISA=amd64, OSFamily=linux}`. The scheduler uses exact matching — empty platform didn't match.
+2. Host-tool actions (`GoToolchainBinaryBuild [for tool]`) use a separate exec platform. Setting only `--extra_execution_platforms` isn't enough; `--host_platform` must also be set.
+**Fix:** Define a custom Bazel platform with both constraint_values (for toolchain resolution) and exec_properties (for REAPI platform matching):
+```python
+# BUILD
+platform(
+    name = "rbe_platform",
+    constraint_values = ["@platforms//os:linux", "@platforms//cpu:x86_64"],
+    exec_properties = {"ISA": "amd64", "OSFamily": "linux"},
+)
+```
+```
+# .bazelrc
+build:rbe --extra_execution_platforms=//:rbe_platform
+build:rbe --host_platform=//:rbe_platform
+build:rbe --platforms=//:rbe_platform
+```
+
+---
+
+### 19. Go stdlib remote build fails: cc not found (CGO)
+**Symptom:** `GoStdlib` remote action fails: `cc: no such file or directory`. stdlib: error running subcommand go: exit status 1`
+**Root cause:** By default, rules_go compiles the Go stdlib with CGO enabled, which requires a C compiler (`cc`/`gcc`). ubuntu:22.04 worker image doesn't have gcc installed.
+**Fix:** Add `pure = "on"` to the `go_binary` rule to disable CGO entirely:
+```python
+go_binary(name = "hello", srcs = ["main.go"], pure = "on")
+```
+This is standard practice for containerized RBE builds — pure Go binaries have no system dependencies.
+
+---
+
