@@ -1,0 +1,46 @@
+module(
+    name = "math_rbe",
+    version = "0.1.0",
+)
+
+# ── Core platform + language rules ──────────────────────────────────────────
+# platforms: provides @platforms//os:linux, @platforms//cpu:x86_64 constraints
+#            used by the rbe_platform() target and toolchain resolution
+bazel_dep(name = "platforms", version = "1.0.0")
+
+# ── Go ───────────────────────────────────────────────────────────────────────
+# rules_go: compiles Go packages, tests, and binaries.
+# gazelle:  generates BUILD files from Go source (used for dep management).
+bazel_dep(name = "rules_go", version = "0.60.0")
+bazel_dep(name = "gazelle", version = "0.50.0")
+
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+# Pin Go SDK so local + RBE workers use identical toolchain.
+go_sdk.download(version = "1.23.4")
+
+# ── C++ ──────────────────────────────────────────────────────────────────────
+# Bazel 9 removed cc rules from builtins — rules_cc must be declared explicitly.
+# The load("@rules_cc//cc:defs.bzl", ...) in cc/BUILD.bazel requires this dep.
+bazel_dep(name = "rules_cc", version = "0.2.17")
+# googletest 1.17.0 BCR package does not yet carry the load() statements
+# required by Bazel 9's removed cc builtins. We use a minimal hand-rolled
+# test harness in stats_test.cc instead — no external test framework needed
+# for simple numeric assertions.
+
+# ── Python ───────────────────────────────────────────────────────────────────
+# rules_python: py_binary, py_test, and pip.parse() for third-party deps.
+bazel_dep(name = "rules_python", version = "1.7.0")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(python_version = "3.11")
+
+# pip.parse() reads validate/requirements.txt and makes each package available
+# as @math_rbe_pip//:pkg_name.  Bazel downloads wheels at build time — no
+# system pip install needed on workers or local machines.
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "math_rbe_pip",
+    python_version = "3.11",
+    requirements_lock = "//validate:requirements.txt",
+)
+use_repo(pip, "math_rbe_pip")
