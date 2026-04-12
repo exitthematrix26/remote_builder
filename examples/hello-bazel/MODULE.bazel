@@ -12,6 +12,7 @@ module(
 # gazelle:  Generates BUILD files from Go source automatically (optional here,
 #           but good practice for larger projects)
 
+bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_go", version = "0.60.0")
 bazel_dep(name = "gazelle", version = "0.50.0")
 

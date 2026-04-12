@@ -4,8 +4,13 @@ load("@rules_go//go:def.bzl", "go_binary")
 
 # RBE execution platform — exec_properties become REAPI platform properties in Execute requests.
 # Workers register ISA=amd64, OSFamily=linux; actions must match exactly for dispatch.
+# constraint_values are needed for toolchain resolution (e.g. rules_go selects linux_amd64 Go SDK).
 platform(
     name = "rbe_platform",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
     exec_properties = {
         "ISA": "amd64",
         "OSFamily": "linux",
@@ -15,7 +20,7 @@ platform(
 go_binary(
     name = "hello",
     srcs = ["main.go"],
-    # visibility = ["//visibility:public"] only needed if other packages import this
+    pure = "on",    # CGO_ENABLED=0 — no C compiler needed in the worker image
 )
 
 genrule(

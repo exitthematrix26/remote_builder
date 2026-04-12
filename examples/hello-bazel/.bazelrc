@@ -44,8 +44,12 @@ build:rbe --remote_instance_name=
 # Execution platform: //:rbe_platform defines exec_properties {ISA=amd64, OSFamily=linux}
 # which Bazel includes as REAPI platform properties in Execute requests.
 # Workers register with the same properties — the scheduler uses exact matching.
-# --extra_execution_platforms makes this platform available during exec platform resolution.
+# --extra_execution_platforms: available exec platforms for all actions
+# --host_platform: used for host-tool actions (e.g. GoToolchainBinaryBuild [for tool])
+# --platforms: target platform (what we're building for)
 build:rbe --extra_execution_platforms=//:rbe_platform
+build:rbe --host_platform=//:rbe_platform
+build:rbe --platforms=//:rbe_platform
 
 # ── Verbose remote (debug) ───────────────────────────────────────────────────
 # Usage: bazel build --config=rbe-verbose //...
