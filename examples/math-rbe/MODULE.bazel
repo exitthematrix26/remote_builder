@@ -19,13 +19,17 @@ go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
 go_sdk.download(version = "1.23.4")
 
 # ── C++ ──────────────────────────────────────────────────────────────────────
-# rules_cc ships with Bazel — no bazel_dep() needed.
-# googletest: unit test framework for the C++ stats library.
-bazel_dep(name = "googletest", version = "1.15.2")
+# Bazel 9 removed cc rules from builtins — rules_cc must be declared explicitly.
+# The load("@rules_cc//cc:defs.bzl", ...) in cc/BUILD.bazel requires this dep.
+bazel_dep(name = "rules_cc", version = "0.2.17")
+# googletest 1.17.0 BCR package does not yet carry the load() statements
+# required by Bazel 9's removed cc builtins. We use a minimal hand-rolled
+# test harness in stats_test.cc instead — no external test framework needed
+# for simple numeric assertions.
 
 # ── Python ───────────────────────────────────────────────────────────────────
 # rules_python: py_binary, py_test, and pip.parse() for third-party deps.
-bazel_dep(name = "rules_python", version = "1.4.1")
+bazel_dep(name = "rules_python", version = "1.7.0")
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.toolchain(python_version = "3.11")

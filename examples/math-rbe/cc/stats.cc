@@ -9,7 +9,7 @@
 //
 // That's 3 independent actions the scheduler can dispatch in parallel —
 // unlike Go where one package = one action.
-#include "cc/stats.h"
+#include "stats.h"
 
 #include <algorithm>
 #include <cmath>

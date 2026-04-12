@@ -1,5 +1,8 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
+# Bazel 9 removed cc rules from builtins — load() is required.
+# rules_cc is declared as bazel_dep in MODULE.bazel.
+
 # cc_library compiles stats.cc and exposes stats.h as a public header.
 #
 # Key Bazel C++ concepts demonstrated here:
@@ -12,7 +15,10 @@ cc_library(
     name = "stats",
     hdrs = ["stats.h"],
     srcs = ["stats.cc"],
-    strip_include_prefix = "/examples/math-rbe",
+    # No strip_include_prefix needed: all consumers are in the same package
+    # and use #include "stats.h" directly.  strip_include_prefix is only
+    # required when headers sit in a subdirectory that differs from the
+    # desired include path.
     visibility = ["//visibility:public"],
 )
 
@@ -32,8 +38,7 @@ cc_binary(
 cc_test(
     name = "stats_test",
     srcs = ["stats_test.cc"],
-    deps = [
-        ":stats",
-        "@googletest//:gtest_main",
-    ],
+    deps = [":stats"],
+    # No external test framework — stats_test.cc has its own main() and
+    # minimal assertion macros.  cc_test treats non-zero exit = test failure.
 )

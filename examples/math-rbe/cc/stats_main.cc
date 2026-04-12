@@ -5,7 +5,7 @@
 //
 // Usage (from genrule in macros.bzl):
 //   stats_bin --input results.csv --output stats.json
-#include "cc/stats.h"
+#include "stats.h"
 
 #include <cstring>
 #include <fstream>
