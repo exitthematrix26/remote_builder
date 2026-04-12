@@ -1,5 +1,5 @@
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
 metadata:
   name: bb-worker
   namespace: {{ .Release.Namespace }}
@@ -11,6 +11,40 @@ spec:
   selector:
     matchLabels:
       {{- include "buildbarn.worker.selectorLabels" . | nindent 6 }}
+
+  # ── Canary strategy ────────────────────────────────────────────────────────
+  # Mimics how a platform team would roll out a new worker toolchain image:
+  #   Step 1: Bring up 25% new workers (1 of 4 worker threads) — watch for errors
+  #   Step 2: Pause 60s — scheduler routes ~25% of queued actions to new workers
+  #   Step 3: Expand to 50% — confirm no regressions at half capacity
+  #   Step 4: Pause 60s
+  #   Step 5: Full promotion — old workers drained and replaced
+  #
+  # AnalysisTemplate (added in Phase 4 with Prometheus):
+  #   Will query bb-scheduler's error rate metric during each pause step.
+  #   If error rate > threshold, Argo Rollouts auto-rolls back to the previous
+  #   worker image without any manual intervention.
+  #
+  # To trigger a rollout: update image.runnerInstaller.tag in values.yaml
+  # To monitor:           kubectl argo rollouts get rollout bb-worker -n rbe-system -w
+  # To promote manually:  kubectl argo rollouts promote bb-worker -n rbe-system
+  # To abort:             kubectl argo rollouts abort bb-worker -n rbe-system
+  strategy:
+    canary:
+      # How many new pods to bring up before scaling down old ones.
+      # maxSurge=1 means at most 1 extra pod above desired (conserves resources on 14GB RAM lab).
+      maxSurge: 1
+      maxUnavailable: 0
+      steps:
+        - setWeight: 25
+        - pause:
+            duration: 60s
+        - setWeight: 50
+        - pause:
+            duration: 60s
+        # Full promotion (100%) happens automatically after the last pause.
+        # In Phase 4: add analysis steps here using Prometheus worker error rate.
+
   template:
     metadata:
       labels:
@@ -45,11 +79,6 @@ spec:
               mountPath: /worker
 
         # ── 3. Write per-pod worker.json with unique workerId ─────────────────
-        # bb-worker requires a unique workerId per thread per pod. Without it,
-        # all pods generate the same ID and the scheduler rejects duplicates with
-        # ResourceExhausted. We inject POD_NAME (from downward API) into the JSON
-        # at startup via this init container, writing to a writable emptyDir.
-        # The bb-worker container reads from /worker-config/ not /config/.
         - name: init-worker-config
           image: busybox:1.36
           env:
@@ -98,8 +127,6 @@ spec:
         - name: bb-worker
           image: "{{ .Values.image.worker.repository }}:{{ .Values.image.worker.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          # Reads from the dynamically-generated config (has unique workerId),
-          # not the static ConfigMap.
           args: ["/worker-config/worker.json"]
           volumeMounts:
             - name: worker-socket
@@ -119,6 +146,5 @@ spec:
         - name: config
           configMap:
             name: bb-worker-config
-        # Writable volume for the per-pod generated worker.json
         - name: worker-config-dynamic
           emptyDir: {}
