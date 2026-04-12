@@ -63,6 +63,6 @@ data:
       "modifyDrainsAuthorizer":  { "allow": {} },
       "killOperationsAuthorizer":{ "allow": {} },
       "synchronizeAuthorizer":   { "allow": {} },
-      "maximumMessageSizeBytes": 16777216,
+      "maximumMessageSizeBytes": 268435456,
       "platformQueueWithNoWorkersTimeout": "900s"
     }

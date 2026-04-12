@@ -21,21 +21,25 @@
 #   Our workers advertise OSFamily=linux,ISA=amd64 (set in values.yaml).
 #
 build:rbe --remote_executor=grpc://localhost:8981
+build:rbe --remote_cache=grpc://localhost:8980
 build:rbe --remote_timeout=120
 build:rbe --jobs=4
 build:rbe --build_event_text_file=/tmp/bep.txt
 
-# Bazel 9 queries GetCapabilities before sending any work. Buildbarn's scheduler
-# advertises ExecutionCapabilities but returns empty CacheCapabilities (cache
-# lives in bb-storage, not the scheduler). Bazel interprets empty
-# digest_functions as "SHA256 not supported" and aborts.
+# Two-endpoint topology:
+#   --remote_executor → bb-scheduler:8981  (execution capabilities, action routing)
+#   --remote_cache    → bb-storage:8980    (cache capabilities + CAS/AC storage)
 #
-# --remote_upload_local_results=false  stops Bazel trying to write to a cache
-#   that hasn't advertised cache capabilities.
-# --remote_local_fallback          falls back to local execution if remote fails
-#   (prevents a single capability check from killing the whole build).
-build:rbe --remote_upload_local_results=false
-build:rbe --remote_local_fallback
+# Port-forwards required (both must be running):
+#   kubectl port-forward svc/bb-scheduler 8981:8981 -n rbe-system &
+#   kubectl port-forward svc/bb-storage   8980:8980 -n rbe-system &
+#
+# Bazel 9 queries GetCapabilities on BOTH endpoints separately:
+#   - executor: gets ExecutionCapabilities (SHA256 execEnabled)
+#   - cache:    gets CacheCapabilities (SHA256 digest functions)  ← bb-storage provides this
+# Without the cache endpoint, Bazel gets empty CacheCapabilities and aborts.
+# Explicit empty instance name — must match on both scheduler and storage sides
+build:rbe --remote_instance_name=
 
 # Tell Bazel this build targets linux/amd64 — must match worker platform properties
 # With Bzlmod (MODULE.bazel) the label uses @rules_go instead of @io_bazel_rules_go

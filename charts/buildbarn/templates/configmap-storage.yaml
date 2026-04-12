@@ -38,7 +38,7 @@ data:
         "listenAddresses": [":{{ .Values.storage.port }}"],
         "authenticationPolicy": { "allow": {} }
       }],
-      "maximumMessageSizeBytes": 16777216,
+      "maximumMessageSizeBytes": 268435456,
       "contentAddressableStorage": {
         "backend": {
           "local": {

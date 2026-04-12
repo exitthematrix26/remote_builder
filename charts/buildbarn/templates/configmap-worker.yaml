@@ -37,7 +37,7 @@ data:
           }
         }
       },
-      "maximumMessageSizeBytes": 16777216,
+      "maximumMessageSizeBytes": 268435456,
       "scheduler": {
         "address": "bb-scheduler:{{ .Values.scheduler.workerPort }}"
       },
