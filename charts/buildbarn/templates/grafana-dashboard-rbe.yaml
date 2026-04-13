@@ -20,20 +20,7 @@ data:
       "timezone": "browser",
       "editable": true,
       "graphTooltip": 1,
-      "templating": {
-        "list": [
-          {
-            "name": "datasource",
-            "label": "Datasource",
-            "type": "datasource",
-            "pluginId": "prometheus",
-            "refresh": 1,
-            "hide": 0,
-            "current": {},
-            "options": []
-          }
-        ]
-      },
+      "templating": { "list": [] },
       "panels": [
         {
           "id": 1,
@@ -41,7 +28,7 @@ data:
           "description": "Incoming RBE Execute RPCs per second — this is the KEDA trigger metric.",
           "type": "timeseries",
           "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": {
               "unit": "short",
@@ -60,7 +47,7 @@ data:
           "targets": [
             {
               "refId": "A",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "rate(grpc_server_started_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\"}[1m])",
               "legendFormat": "Execute actions/s",
               "interval": ""
@@ -73,7 +60,7 @@ data:
           "description": "KEDA-managed HPA replica count for bb-worker Rollout.",
           "type": "timeseries",
           "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": {
               "unit": "short",
@@ -92,21 +79,21 @@ data:
           "targets": [
             {
               "refId": "A",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"rbe-system\",horizontalpodautoscaler=\"keda-hpa-bb-worker\"}",
               "legendFormat": "Current",
               "interval": ""
             },
             {
               "refId": "B",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"rbe-system\",horizontalpodautoscaler=\"keda-hpa-bb-worker\"}",
               "legendFormat": "Max",
               "interval": ""
             },
             {
               "refId": "C",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "kube_horizontalpodautoscaler_spec_min_replicas{namespace=\"rbe-system\",horizontalpodautoscaler=\"keda-hpa-bb-worker\"}",
               "legendFormat": "Min",
               "interval": ""
@@ -119,7 +106,7 @@ data:
           "description": "When trigger value > threshold × current_replicas, KEDA adds workers.",
           "type": "timeseries",
           "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": {
               "unit": "short",
@@ -138,14 +125,14 @@ data:
           "targets": [
             {
               "refId": "A",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "sum(increase(grpc_server_started_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\"}[2m]))",
               "legendFormat": "Trigger value",
               "interval": ""
             },
             {
               "refId": "B",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "0*grpc_server_started_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\"} + 4",
               "legendFormat": "Threshold (scale-up at 4)",
               "interval": ""
@@ -158,7 +145,7 @@ data:
           "description": "Time from action submitted to completed (includes queue wait + execution).",
           "type": "timeseries",
           "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": {
               "unit": "s",
@@ -177,14 +164,14 @@ data:
           "targets": [
             {
               "refId": "A",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "histogram_quantile(0.50, rate(buildbarn_builder_in_memory_build_queue_tasks_completed_duration_seconds_bucket{namespace=\"rbe-system\"}[2m]))",
               "legendFormat": "p50",
               "interval": ""
             },
             {
               "refId": "B",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "histogram_quantile(0.95, rate(buildbarn_builder_in_memory_build_queue_tasks_completed_duration_seconds_bucket{namespace=\"rbe-system\"}[2m]))",
               "legendFormat": "p95",
               "interval": ""
@@ -197,7 +184,7 @@ data:
           "description": "Replica count per ReplicaSet — during a canary rollout you see two RS: stable (75%/50%) and canary (25%/50%). Both reach the same count at full promotion.",
           "type": "timeseries",
           "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": {
               "unit": "short",
@@ -216,7 +203,7 @@ data:
           "targets": [
             {
               "refId": "A",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "kube_replicaset_spec_replicas{namespace=\"rbe-system\"} * on(replicaset) group_left() (kube_replicaset_labels{namespace=\"rbe-system\",label_app_kubernetes_io_name=\"bb-worker\"} > 0)",
               "legendFormat": "{{ "{{replicaset}}" }}",
               "interval": ""
@@ -229,7 +216,7 @@ data:
           "description": "Rate of successfully completed vs failed Execute RPCs through the scheduler.",
           "type": "timeseries",
           "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": {
               "unit": "short",
@@ -248,14 +235,14 @@ data:
           "targets": [
             {
               "refId": "A",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "sum(rate(grpc_server_handled_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\",grpc_code=\"OK\"}[1m]))",
               "legendFormat": "Success/s",
               "interval": ""
             },
             {
               "refId": "B",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "sum(rate(grpc_server_handled_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\"}[1m])) - sum(rate(grpc_server_handled_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\",grpc_code=\"OK\"}[1m]))",
               "legendFormat": "Errors/s",
               "interval": ""
