@@ -1,0 +1,266 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-rbe-load
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "buildbarn.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+    grafana_folder: "RBE"
+data:
+  rbe-load.json: |-
+    {
+      "title": "RBE Load & Autoscaling",
+      "uid": "rbe-load-autoscaling",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "15s",
+      "time": { "from": "now-15m", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "editable": true,
+      "graphTooltip": 1,
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Datasource",
+            "type": "datasource",
+            "pluginId": "prometheus",
+            "refresh": 1,
+            "hide": 0,
+            "current": {},
+            "options": []
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Execute RPC Rate",
+          "description": "Incoming RBE Execute RPCs per second — this is the KEDA trigger metric.",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "list", "placement": "bottom" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "rate(grpc_server_started_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\"}[1m])",
+              "legendFormat": "Execute actions/s",
+              "interval": ""
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Worker Replicas",
+          "description": "KEDA-managed HPA replica count for bb-worker Rollout.",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "list", "placement": "bottom" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"rbe-system\",horizontalpodautoscaler=\"keda-hpa-bb-worker\"}",
+              "legendFormat": "Current",
+              "interval": ""
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"rbe-system\",horizontalpodautoscaler=\"keda-hpa-bb-worker\"}",
+              "legendFormat": "Max",
+              "interval": ""
+            },
+            {
+              "refId": "C",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "kube_horizontalpodautoscaler_spec_min_replicas{namespace=\"rbe-system\",horizontalpodautoscaler=\"keda-hpa-bb-worker\"}",
+              "legendFormat": "Min",
+              "interval": ""
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "KEDA Trigger Value vs Threshold",
+          "description": "When trigger value > threshold × current_replicas, KEDA adds workers.",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "list", "placement": "bottom" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(increase(grpc_server_started_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\"}[2m]))",
+              "legendFormat": "Trigger value",
+              "interval": ""
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "0*grpc_server_started_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\"} + 4",
+              "legendFormat": "Threshold (scale-up at 4)",
+              "interval": ""
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Action Execution Duration",
+          "description": "Time from action submitted to completed (includes queue wait + execution).",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "list", "placement": "bottom" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "histogram_quantile(0.50, rate(buildbarn_builder_in_memory_build_queue_tasks_completed_duration_seconds_bucket{namespace=\"rbe-system\"}[2m]))",
+              "legendFormat": "p50",
+              "interval": ""
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "histogram_quantile(0.95, rate(buildbarn_builder_in_memory_build_queue_tasks_completed_duration_seconds_bucket{namespace=\"rbe-system\"}[2m]))",
+              "legendFormat": "p95",
+              "interval": ""
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Canary / Stable Worker Split",
+          "description": "Replica count per ReplicaSet — during a canary rollout you see two RS: stable (75%/50%) and canary (25%/50%). Both reach the same count at full promotion.",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "list", "placement": "bottom" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "kube_replicaset_spec_replicas{namespace=\"rbe-system\"} * on(replicaset) group_left() (kube_replicaset_labels{namespace=\"rbe-system\",label_app_kubernetes_io_name=\"bb-worker\"} > 0)",
+              "legendFormat": "{{ "{{replicaset}}" }}",
+              "interval": ""
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Completed vs Failed Actions",
+          "description": "Rate of successfully completed vs failed Execute RPCs through the scheduler.",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "list", "placement": "bottom" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(rate(grpc_server_handled_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\",grpc_code=\"OK\"}[1m]))",
+              "legendFormat": "Success/s",
+              "interval": ""
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(rate(grpc_server_handled_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\"}[1m])) - sum(rate(grpc_server_handled_total{namespace=\"rbe-system\",job=\"bb-scheduler\",grpc_method=\"Execute\",grpc_code=\"OK\"}[1m]))",
+              "legendFormat": "Errors/s",
+              "interval": ""
+            }
+          ]
+        }
+      ]
+    }
