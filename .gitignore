@@ -22,3 +22,4 @@ charts/*/Chart.lock
 
 # kubeseal temp files
 *.unsealed.yaml
+kubectl-argo-rollouts-linux-amd64

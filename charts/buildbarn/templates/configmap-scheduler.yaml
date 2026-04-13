@@ -65,8 +65,10 @@ data:
       "synchronizeAuthorizer":   { "allow": {} },
       "maximumMessageSizeBytes": 268435456,
       "platformQueueWithNoWorkersTimeout": "900s",
-      "diagnosticsHttpServer": {
-        "listenAddress": ":{{ .Values.scheduler.metricsPort }}",
-        "enablePrometheus": true
+      "global": {
+        "diagnosticsHttpServer": {
+          "httpServers": [{ "listenAddresses": [":{{ .Values.scheduler.metricsPort }}"] }],
+          "enablePrometheus": true
+        }
       }
     }
