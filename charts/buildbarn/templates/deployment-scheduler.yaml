@@ -39,6 +39,10 @@ spec:
             - name: grpc-worker
               containerPort: {{ .Values.scheduler.workerPort }}
               protocol: TCP
+            # Prometheus /metrics + pprof — exposed by diagnosticsHttpServer
+            - name: metrics
+              containerPort: {{ .Values.scheduler.metricsPort }}
+              protocol: TCP
 
           readinessProbe:
             grpc:

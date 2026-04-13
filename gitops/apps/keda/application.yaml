@@ -1,0 +1,88 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# KEDA — Kubernetes Event-Driven Autoscaling — Argo CD Application
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# KEDA extends Kubernetes HPA with event-source triggers beyond CPU/memory:
+#   - Prometheus: scale on any PromQL query result
+#   - Queue depth (Kafka, RabbitMQ, SQS, etc.)
+#   - Cron schedules
+#   - Custom external metrics
+#
+# What KEDA does under the hood:
+#   1. Watches ScaledObject CRs you create
+#   2. Queries the configured trigger (Prometheus in our case)
+#   3. Adjusts an HPA's minReplicas/maxReplicas/targetValue
+#   4. HPA scales the target (bb-worker Rollout) via its /scale subresource
+#
+# Why KEDA over raw HPA for RBE?
+#   HPA only knows about CPU/memory.  KEDA lets us scale bb-worker on the
+#   actual number of queued build actions in bb-scheduler — the direct
+#   signal of demand rather than a proxy metric.
+#
+# Sync wave 1: installs CRDs (ScaledObject, TriggerAuthentication) before
+# rbe-system (wave 2) creates the ScaledObject for bb-worker.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keda
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: rbe-lab
+    app.kubernetes.io/component: autoscaling
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://kedacore.github.io/charts
+    chart: keda
+    targetRevision: "2.16.1"
+
+    helm:
+      values: |
+        # KEDA operator — watches ScaledObject CRs and manages HPAs
+        operator:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+        # Metrics adapter — serves external metrics API to HPA
+        metricsServer:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+        # Admission webhooks — validates ScaledObject correctness at apply time
+        webhooks:
+          enabled: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: keda
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

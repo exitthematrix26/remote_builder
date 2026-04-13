@@ -348,3 +348,77 @@ This is standard practice for containerized RBE builds — pure Go binaries have
 **Why:** EngFlow's own example repo ([EngFlow/example](https://github.com/EngFlow/example)) uses this image as the `container-image` exec_property. It is the canonical Bazel RBE base image — includes gcc, clang/LLVM-10, python3, git, Java 11, and standard coreutils. Using it makes the lab environment match EngFlow production workers.
 **Also:** Platform exec_properties updated to match EngFlow convention: `"OSFamily": "Linux"` (capital L), `"ISA": "x86_64"` — must match exactly between worker registration (`values.yaml`) and Bazel platform (`BUILD`) since Buildbarn scheduler uses exact string matching.
 
+---
+
+## Phase 5 — KEDA Autoscaling
+
+### 21. Argo CD selfHeal reverts manual ConfigMap changes
+**Symptom:** Every `kubectl apply` or `helm template | kubectl apply` was reverted within 30–60 seconds. The scheduler kept reverting to its old config with no metrics port.
+**Root cause:** The `app-of-apps` had `syncPolicy.automated.selfHeal: true`, and `rbe-system` Application tracked `main` branch. Argo CD detected drift and resynced from main, overwriting every manual edit.
+**Fix:** Disabled automated sync on both apps before making changes:
+```bash
+kubectl patch application app-of-apps -n argocd --type=merge \
+  -p '{"spec":{"syncPolicy":{"automated":null}}}'
+kubectl patch application rbe-system -n argocd --type=merge \
+  -p '{"spec":{"source":{"targetRevision":"phase-5-keda"},"syncPolicy":{"automated":null}}}'
+argocd app sync rbe-system --force
+```
+Re-enable after the branch is merged to main.
+
+### 22. diagnosticsHttpServer not starting — wrong config location
+**Symptom:** Port 8083 not listening on bb-scheduler even after adding `diagnosticsHttpServer` to scheduler.json.
+**Root cause:** The field was placed at the top level of the JSON, but in bb-scheduler's ApplicationConfiguration proto it lives inside the `global` message (field index 8). Top-level placement is silently ignored.
+**Fix:** Wrapped in `"global"`:
+```json
+"global": {
+  "diagnosticsHttpServer": { ... }
+}
+```
+
+### 23. diagnosticsHttpServer not starting — wrong field name `listenAddress`
+**Symptom:** Port 8083 still not listening after moving under `global`.
+**Root cause:** The `DiagnosticsHTTPServerConfiguration` proto uses a repeated `httpServers` field, each with `listenAddresses` (plural). The old schema had a single `listenAddress` string. The new schema needs:
+```json
+"httpServers": [{"listenAddresses": [":8083"]}]
+```
+
+### 24. bb-scheduler CrashLoopBackOff — authenticationPolicy not specified
+**Symptom:** `Fatal error: rpc error: code = InvalidArgument desc = Authentication policy not specified` immediately after startup.
+**Root cause:** Every `httpServers` entry in the Buildbarn configuration requires an `authenticationPolicy` field.
+**Fix:**
+```json
+"httpServers": [{"listenAddresses": [":8083"], "authenticationPolicy": {"allow": {}}}]
+```
+
+### 25. KEDA trigger using wrong metric — Queue depth always zero
+**Symptom:** ScaledObject READY=True, ACTIVE=False. HPA target was `0/2 (avg)` even during heavy RBE load.
+**Root cause:** The initial trigger used `buildbarn_builder_in_memory_build_queue_tasks_scheduled_total{assignment="Queue"}` which counts tasks that wait in the queue. When workers are available, Buildbarn assigns tasks directly to `assignment="Worker"` — tasks never enter the Queue state. The metric is always 0 unless workers are completely saturated.
+**Fix:** Switched to `grpc_server_started_total{grpc_method="Execute"}` which counts every incoming Execute RPC regardless of worker availability. This fires the moment Bazel sends actions, giving KEDA a leading signal.
+```yaml
+query: |
+  sum(increase(grpc_server_started_total{namespace="rbe-system",job="bb-scheduler",grpc_method="Execute"}[2m]))
+threshold: "4"
+```
+
+### 26. math-rbe Bazel 9 RBE build issues
+**Symptom:** Multiple build failures when running `bazel test --config=rbe //...`.
+
+**a) `native.py_test` removed:** Bazel 9 removed py_test from builtins. Added `load("@rules_python//python:defs.bzl", "py_test")` to macros.bzl.
+
+**b) pip target path wrong:** `@math_rbe_pip//:pandas` is not valid in rules_python 1.x. Correct path: `@math_rbe_pip//pandas`.
+
+**c) Go binary type error:** `cmd/main.go` passed CSV string values directly to `mathlib.Compute(float64, float64, Op)`. Fixed by calling `strconv.ParseFloat` before passing to Compute.
+
+**d) requirements.txt missing transitive deps:** Only `pandas` and `pytest` were listed. Added all transitive deps: `iniconfig`, `pluggy`, `numpy`, `packaging`, `python-dateutil`, `pytz`, `six`, `tzdata`.
+
+**e) C++ hermetic build rejection:** The host GCC toolchain emits absolute system header paths (`/usr/lib/gcc/x86_64-linux-gnu/9/include/stddef.h`) which Bazel rejects for remote execution. Fixed by adding to `.bazelrc`:
+```
+build:rbe --strategy=CppCompile=local,sandboxed
+build:rbe --strategy=CppLink=local,sandboxed
+```
+C++ compiles locally; Go and genrule actions still dispatch to RBE workers.
+
+**f) GLIBC version mismatch for stats genrule:** The C++ `stats_bin` tool compiled locally links against GLIBC 2.34 but RBE workers run Ubuntu 20.04 (GLIBC 2.31 max). Fixed by adding `local = True` to the `_stats` genrule so tool and execution stay on the same host.
+
+**g) stats_test absolute paths:** `cc:stats_test` references `<cstdio>`, `<cmath>` etc. which pull in host GCC absolute paths. Fixed with `tags = ["local"]` on the cc_test.
+

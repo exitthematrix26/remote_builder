@@ -1,5 +1,8 @@
 # macros.bzl — custom Starlark macros for math-rbe
 #
+# Bazel 9 removed py_test from native builtins — must load explicitly.
+load("@rules_python//python:defs.bzl", "py_test")
+
 # WHY MACROS?
 # A Bazel macro is a function that expands into one or more rules at load time.
 # They live in .bzl files and are loaded with load() in BUILD files.
@@ -48,15 +51,20 @@ def math_pipeline(name, dataset, timeout = "short"):
         name = name + "_stats",
         srcs = [name + "_results.csv"],
         outs = [name + "_stats.json"],
-        cmd = "$(location //cc:stats_bin) --input=$(location " + name + "_results.csv) --output=$@",
+        cmd = "$(location //cc:stats_bin) --input $(location " + name + "_results.csv) --output $@",
         tools = ["//cc:stats_bin"],
+        # local=True: stats_bin is compiled with the host GCC (GLIBC 2.34+).
+        # The RBE workers run Ubuntu 20.04 (GLIBC 2.31) so the binary would
+        # crash with "version GLIBC_2.34 not found".  Running the genrule
+        # locally keeps tool and execution on the same host libc.
+        local = True,
     )
 
     # ── Step 3: Python pytest validation ─────────────────────────────────────
     # py_test (not genrule) so `bazel test //...` picks it up and reports
     # pass/fail in the test summary. The validate_test.py script reads both
     # the results CSV and the stats JSON and asserts correctness.
-    native.py_test(
+    py_test(
         name = name + "_check",
         srcs = ["//validate:validate_test.py"],
         main = "//validate:validate_test.py",
@@ -66,8 +74,8 @@ def math_pipeline(name, dataset, timeout = "short"):
             dataset,
         ],
         deps = [
-            "@math_rbe_pip//:pandas",
-            "@math_rbe_pip//:pytest",
+            "@math_rbe_pip//pandas",
+            "@math_rbe_pip//pytest",
         ],
         env = {
             # Pass file paths via env so pytest doesn't need argparse.

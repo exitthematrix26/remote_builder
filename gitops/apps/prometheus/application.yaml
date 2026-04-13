@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# kube-prometheus-stack — Argo CD Application
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Installs Prometheus Operator + Prometheus + Grafana + AlertManager into the
+# monitoring namespace.  This is the standard platform observability stack.
+#
+# Why kube-prometheus-stack vs a standalone Prometheus?
+#   - Ships CRDs: ServiceMonitor, PodMonitor, PrometheusRule — used by KEDA
+#     and by our AnalysisTemplate in the bb-worker canary Rollout
+#   - Prometheus Operator watches ServiceMonitor objects and auto-configures
+#     scrape targets — no manual prometheus.yml editing
+#   - Grafana is bundled with dashboards for kube-state-metrics + node-exporter
+#
+# What we use it for (Phase 5):
+#   1. Scrape bb-scheduler Prometheus metrics via ServiceMonitor
+#   2. Feed Execute RPC rate + queue depth to KEDA Prometheus trigger
+#   3. Gate bb-worker canary rollouts via AnalysisTemplate error-rate query
+#   4. Grafana: RBE build throughput, cache hit rate, worker CPU/memory
+#
+# Sync wave 1: after argo-rollouts CRDs (wave -1), before rbe-system (wave 2).
+# KEDA (wave 1) and Prometheus (wave 1) can install in parallel.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: rbe-lab
+    app.kubernetes.io/component: observability
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: "70.4.2"
+
+    helm:
+      values: |
+        # ── Grafana ──────────────────────────────────────────────────────────
+        grafana:
+          enabled: true
+          adminPassword: "admin"   # lab only — use Sealed Secret in production
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          # Access: kubectl port-forward svc/prometheus-grafana -n monitoring 3000:80 &
+          # Open:   http://localhost:3000  (admin/admin)
+
+        # ── Prometheus ───────────────────────────────────────────────────────
+        prometheus:
+          prometheusSpec:
+            # Scrape ALL ServiceMonitors across ALL namespaces — this is how
+            # bb-scheduler's ServiceMonitor in rbe-system gets picked up.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            serviceMonitorSelector: {}
+            serviceMonitorNamespaceSelector: {}
+            # Keep 7 days of metrics; sized for the lab's storage
+            retention: 7d
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 5Gi
+
+        # ── AlertManager ─────────────────────────────────────────────────────
+        # Disabled for the lab — reduces memory pressure on 14GB kind cluster.
+        # Enable in production and wire to PagerDuty/Slack.
+        alertmanager:
+          enabled: false
+
+        # ── kube-state-metrics + node-exporter ───────────────────────────────
+        # Both enabled by default — provide pod/node CPU and memory metrics.
+        # These back the "CPU" fallback trigger in the KEDA ScaledObject.
+        kubeStateMetrics:
+          enabled: true
+        nodeExporter:
+          enabled: true
+
+        # ── Prometheus Operator ───────────────────────────────────────────────
+        prometheusOperator:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

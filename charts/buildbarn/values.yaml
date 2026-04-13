@@ -66,6 +66,7 @@ scheduler:
   replicas: 1
   clientPort: 8981             # Bazel clients connect here (exposed via NodePort/port-forward)
   workerPort: 8982             # Workers connect here (internal only)
+  metricsPort: 8083            # HTTP: /metrics (Prometheus), /healthz, /debug/pprof
   nodeSelector:
     pool: infra
   resources:
@@ -84,6 +85,8 @@ scheduler:
 # Workers MUST run on the dedicated worker node (toleration required).
 worker:
   replicas: 2
+  minReplicas: 2               # KEDA ScaledObject lower bound — never scale below this
+  maxReplicas: 6               # KEDA ScaledObject upper bound — 6 pods × ~256Mi ≈ 1.5GB
   concurrency: 2               # Simultaneous build actions per worker pod
   # Platform properties Bazel must request to route work to these workers.
   # In .bazelrc: --extra_execution_platforms=//:rbe_platform

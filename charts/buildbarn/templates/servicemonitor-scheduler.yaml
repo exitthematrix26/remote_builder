@@ -1,0 +1,43 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ServiceMonitor — Prometheus scrape configuration for bb-scheduler
+#
+# The Prometheus Operator watches ServiceMonitor objects and auto-generates
+# scrape jobs without any manual prometheus.yml editing.
+#
+# This ServiceMonitor tells Prometheus to scrape bb-scheduler's /metrics
+# endpoint (port 8083) every 15 seconds.  The scraped metrics include:
+#
+#   Go runtime:      go_goroutines, go_gc_duration_seconds, process_cpu_seconds_total
+#   gRPC server:     grpc_server_started_total, grpc_server_handled_total
+#                    grpc_server_handling_seconds (latency histogram)
+#   Buildbarn:       buildbarn_* gauges for operation queue state
+#
+# These metrics feed two consumers:
+#   1. KEDA ScaledObject (scaledobject-worker.yaml) — triggers autoscaling
+#   2. AnalysisTemplate (analysis-worker.yaml) — gates canary rollouts
+#
+# Namespace selector: Prometheus is in 'monitoring', bb-scheduler is in
+# 'rbe-system'.  The Prometheus instance is configured with
+# serviceMonitorNamespaceSelector: {} (matches all namespaces) so this
+# ServiceMonitor in rbe-system is picked up automatically.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bb-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "buildbarn.labels" . | nindent 4 }}
+    # This label is how the Prometheus Operator locates ServiceMonitors.
+    # Must match the prometheus.prometheusSpec.serviceMonitorSelector in
+    # the kube-prometheus-stack values — we set that to {} (match all).
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      {{- include "buildbarn.scheduler.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics           # matches the "metrics" port name on the Service
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

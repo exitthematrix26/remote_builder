@@ -1,0 +1,104 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# KEDA ScaledObject — bb-worker autoscaling
+#
+# KEDA watches this object and manages an HPA that scales the bb-worker Rollout.
+# When the Prometheus trigger fires, KEDA sets the Rollout's spec.replicas via
+# its /scale subresource — Argo Rollouts then manages the stable/canary split.
+#
+# Scale logic:
+#   - Prometheus trigger:  scale up when Execute RPC rate > threshold/worker
+#   - CPU trigger:         scale up when average CPU > 70% (fallback)
+#   - KEDA uses the MAX of all triggers (most aggressive wins)
+#
+# Thresholds:
+#   Execute RPC threshold: 2 RPCs/second total → 1 worker needed.
+#   Each worker handles concurrency=2 actions in parallel.
+#   So: ceil(total_rpc_rate / 2) workers.  KEDA's desiredReplicas = metric_value / threshold.
+#
+# Limits sized for the 14GB RAM kind cluster:
+#   minReplicas: 2  — always keep 2 workers ready (never scale to zero for RBE)
+#   maxReplicas: 6  — 6 × ~256Mi = ~1.5GB; leaves room for scheduler + storage + system
+#
+# Scale-down is deliberately slow (stabilizationWindowSeconds: 300 = 5 min):
+#   Workers in the middle of executing an action must not be killed suddenly.
+#   5 minutes gives any in-flight action time to complete before the pod is drained.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: bb-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "buildbarn.labels" . | nindent 4 }}
+spec:
+  # ── Target ─────────────────────────────────────────────────────────────────
+  # KEDA scales any resource implementing the /scale subresource.
+  # Argo Rollouts implements scale — KEDA adjusts spec.replicas and Rollout
+  # manages the canary split automatically within the new desired count.
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: bb-worker
+
+  # ── Replica bounds ──────────────────────────────────────────────────────────
+  minReplicaCount: {{ .Values.worker.minReplicas }}
+  maxReplicaCount: {{ .Values.worker.maxReplicas }}
+
+  # ── Cooldown periods ────────────────────────────────────────────────────────
+  # pollingInterval:  how often KEDA evaluates triggers (seconds)
+  # cooldownPeriod:   seconds of zero-trigger before scaling to min replicas
+  #                   Not used here (minReplicas > 0) but kept explicit.
+  pollingInterval: 15
+  cooldownPeriod:  60
+
+  # ── HPA behaviour overrides ─────────────────────────────────────────────────
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          # Scale up fast: 1 new pod per 15-second window, no stabilisation.
+          # RBE build queues are bursty — we want workers up within one Bazel retry.
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 2
+              periodSeconds: 30
+        scaleDown:
+          # Scale down slowly: wait 5 minutes after load drops.
+          # In-flight build actions must complete before worker pods are drained.
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+
+  # ── Triggers ────────────────────────────────────────────────────────────────
+  triggers:
+    # ── Trigger 1: Prometheus — Execute RPC rate ─────────────────────────────
+    # Primary trigger: scales on incoming Execute RPC volume to bb-scheduler.
+    #
+    # WHY NOT assignment="Queue"?
+    #   tasks_scheduled_total{assignment="Queue"} is only non-zero when workers
+    #   are already saturated — tasks skip the Queue state and go directly to
+    #   assignment="Worker" when a worker is immediately available.  That metric
+    #   fires too late (after saturation), not before it.
+    #
+    # WHY Execute RPC rate?
+    #   grpc_server_started_total{grpc_method="Execute"} counts every incoming
+    #   RBE build action.  It increases the moment Bazel dispatches work,
+    #   regardless of whether workers are busy.  This is a LEADING indicator:
+    #   KEDA scales up during the build, not after workers are already swamped.
+    #
+    # Scale math:
+    #   desiredReplicas = ceil(increase_in_2m / threshold)
+    #   Each worker has concurrency=2 → handles 2 parallel actions.
+    #   threshold=4: add 1 worker per 4 Execute RPCs in the 2m window.
+    #   Example: 20 RPCs in 2m → ceil(20/4) = 5 workers.
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-kube-prometheus-prometheus.monitoring:9090
+        metricName: bb_scheduler_execute_rpc_rate
+        query: |
+          sum(increase(grpc_server_started_total{namespace="rbe-system",job="bb-scheduler",grpc_method="Execute"}[2m]))
+        threshold: "4"
+        ignoreNullValues: "true"
