@@ -40,7 +40,9 @@ func main() {
 
 	results := make([]mathlib.Result, 0, len(rows))
 	for _, row := range rows {
-		results = append(results, mathlib.Compute(row[0], row[1], mathlib.Op(row[2])))
+		a, _ := strconv.ParseFloat(row[0], 64)
+		b, _ := strconv.ParseFloat(row[1], 64)
+		results = append(results, mathlib.Compute(a, b, mathlib.Op(row[2])))
 	}
 
 	if err := writeResults(*output, results); err != nil {

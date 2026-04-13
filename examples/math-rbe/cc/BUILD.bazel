@@ -41,4 +41,10 @@ cc_test(
     deps = [":stats"],
     # No external test framework — stats_test.cc has its own main() and
     # minimal assertion macros.  cc_test treats non-zero exit = test failure.
+    #
+    # tags = ["local"]: the hand-rolled test harness pulls in standard library
+    # headers (<cstdio>, <cmath>, <cstring>) via the local GCC toolchain.
+    # Bazel RBE enforces hermetic builds and rejects absolute system header
+    # paths — so this test always runs on the local host, not remote workers.
+    tags = ["local"],
 )

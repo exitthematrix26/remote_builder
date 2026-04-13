@@ -29,6 +29,13 @@ build:rbe --extra_execution_platforms=//:rbe_platform
 build:rbe --host_platform=//:rbe_platform
 build:rbe --platforms=//:rbe_platform
 
+# C++ compilation uses the local GCC toolchain which emits absolute system
+# header paths (/usr/lib/gcc/x86_64-linux-gnu/...).  Bazel's hermetic sandbox
+# rejects these on remote workers, so compile C++ locally and cache the result.
+# Go and genrule actions still dispatch to RBE workers as normal.
+build:rbe --strategy=CppCompile=local,sandboxed
+build:rbe --strategy=CppLink=local,sandboxed
+
 # ── Cache-busting config (forces fresh remote execution) ─────────────────────
 # Usage: bazel build --config=rbe --config=nocache //...
 # Skips the Action Cache — every action is re-executed on workers.

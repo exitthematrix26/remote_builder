@@ -61,6 +61,7 @@ for arg in "$@"; do
 done
 
 # Parse --loop N
+PREV=""
 for i in "$@"; do
   if [[ "$PREV" == "--loop" ]]; then LOOPS=$i; fi
   PREV=$i

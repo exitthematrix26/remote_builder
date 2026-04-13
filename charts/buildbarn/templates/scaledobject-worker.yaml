@@ -74,33 +74,31 @@ spec:
 
   # ── Triggers ────────────────────────────────────────────────────────────────
   triggers:
-    # ── Trigger 1: Prometheus — Buildbarn queued tasks ───────────────────────
-    # Primary trigger: scales on the ACTUAL queue depth inside bb-scheduler.
+    # ── Trigger 1: Prometheus — Execute RPC rate ─────────────────────────────
+    # Primary trigger: scales on incoming Execute RPC volume to bb-scheduler.
     #
-    # buildbarn_builder_in_memory_build_queue_tasks_scheduled_total
-    #   {assignment="Queue"} — tasks waiting for a worker (not yet assigned)
+    # WHY NOT assignment="Queue"?
+    #   tasks_scheduled_total{assignment="Queue"} is only non-zero when workers
+    #   are already saturated — tasks skip the Queue state and go directly to
+    #   assignment="Worker" when a worker is immediately available.  That metric
+    #   fires too late (after saturation), not before it.
     #
-    # We use increase([2m]) to get the number of tasks enqueued in the last
-    # 2 minutes.  This is a leading indicator: tasks hit "Queue" before any
-    # worker picks them up, so KEDA sees demand before workers are saturated.
+    # WHY Execute RPC rate?
+    #   grpc_server_started_total{grpc_method="Execute"} counts every incoming
+    #   RBE build action.  It increases the moment Bazel dispatches work,
+    #   regardless of whether workers are busy.  This is a LEADING indicator:
+    #   KEDA scales up during the build, not after workers are already swamped.
     #
-    # threshold=2: add one worker for every 2 tasks queued in the window.
-    # With concurrency=2 per pod, 2 queued tasks = 1 full pod worth of backlog.
+    # Scale math:
+    #   desiredReplicas = ceil(increase_in_2m / threshold)
+    #   Each worker has concurrency=2 → handles 2 parallel actions.
+    #   threshold=4: add 1 worker per 4 Execute RPCs in the 2m window.
+    #   Example: 20 RPCs in 2m → ceil(20/4) = 5 workers.
     - type: prometheus
       metadata:
         serverAddress: http://prometheus-kube-prometheus-prometheus.monitoring:9090
-        metricName: bb_scheduler_queued_tasks
+        metricName: bb_scheduler_execute_rpc_rate
         query: |
-          sum(increase(buildbarn_builder_in_memory_build_queue_tasks_scheduled_total{namespace="rbe-system",assignment="Queue"}[2m]))
-        threshold: "2"
+          sum(increase(grpc_server_started_total{namespace="rbe-system",job="bb-scheduler",grpc_method="Execute"}[2m]))
+        threshold: "4"
         ignoreNullValues: "true"
-
-    # ── Trigger 2: CPU utilisation ────────────────────────────────────────────
-    # Fallback: scales on average CPU across all bb-worker pods.
-    # Fires before the Prometheus trigger during initial load before Prometheus
-    # has a full 1m window of data, or if Prometheus is temporarily unavailable.
-    # utilization=70: scale when workers average 70% CPU
-    - type: cpu
-      metricType: Utilization
-      metadata:
-        value: "70"
