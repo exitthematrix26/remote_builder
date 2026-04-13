@@ -103,16 +103,19 @@ if [ "$LOOPS" -gt 1 ]; then
     run "python3 scripts/gen_inputs.py --rows 50 --seed $i --out $SEED_CSV"
 
     # Run the Go runner directly (outside Bazel) against the seeded CSV.
-    # This bypasses the Bazel AC — every call is a fresh remote exec.
-    info "Running Go batch runner against seeded input (direct binary, no AC)"
-    RUNNER="$(bazel cquery --config=rbe --output=files //cmd:runner 2>/dev/null | tail -1)"
+    # Build with no RBE config so the binary lands in the local bazel-bin.
+    # (Binaries built with --config=rbe are in the remote exec output tree,
+    # not on the local filesystem.)
+    info "Building Go runner and stats_bin locally for direct execution"
+    bazel build //cmd:runner //cc:stats_bin 2>/dev/null
+    RUNNER="$(bazel cquery --output=files //cmd:runner 2>/dev/null | tail -1)"
     RESULT_CSV="/tmp/results_seed${i}.csv"
     run "$RUNNER --input=$SEED_CSV --output=$RESULT_CSV"
 
     # Run C++ stats on the result
-    STATS_BIN="$(bazel cquery --config=rbe --output=files //cc:stats_bin 2>/dev/null | tail -1)"
+    STATS_BIN="$(bazel cquery --output=files //cc:stats_bin 2>/dev/null | tail -1)"
     STATS_JSON="/tmp/stats_seed${i}.json"
-    run "$STATS_BIN --input=$RESULT_CSV --output=$STATS_JSON"
+    run "$STATS_BIN --input $RESULT_CSV --output $STATS_JSON"
 
     info "Stats for seed=$i: $(cat $STATS_JSON)"
 
