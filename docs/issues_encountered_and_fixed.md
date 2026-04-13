@@ -422,3 +422,9 @@ C++ compiles locally; Go and genrule actions still dispatch to RBE workers.
 
 **g) stats_test absolute paths:** `cc:stats_test` references `<cstdio>`, `<cmath>` etc. which pull in host GCC absolute paths. Fixed with `tags = ["local"]` on the cc_test.
 
+### 27. Service selector instance label mismatch — endpoints empty, metrics unreachable
+**Symptom:** `bb-scheduler:8083/metrics` connection refused from inside the cluster despite the pod listening correctly. `kubectl get endpoints bb-scheduler` showed `<none>`. The same mismatch silently affected bb-storage.
+**Root cause:** Services were originally created via `helm install bb charts/buildbarn` (release name `bb`), which rendered `app.kubernetes.io/instance: bb` in Service selectors. ArgoCD uses the Application name (`rbe-system`) as the Helm release name when `releaseName` is not explicitly set, rendering `app.kubernetes.io/instance: rbe-system` on pods. Selector `instance=bb` ≠ pod label `instance=rbe-system` → no Endpoints.
+**Why it wasn't caught earlier:** gRPC ports 8981/8982 were used via `kubectl port-forward` (bypasses the Service entirely). The metrics port 8083 was only added in Phase 5 and is only tested via in-cluster DNS — making it the first thing that exposed the broken Service.
+**Fix:** Added `releaseName: rbe-system` to `gitops/apps/rbe-system/application.yaml` so Helm renders all labels with `instance=rbe-system` consistently. Service selectors patched live first; ArgoCD sync made it permanent.
+
