@@ -67,7 +67,10 @@ data:
       "platformQueueWithNoWorkersTimeout": "900s",
       "global": {
         "diagnosticsHttpServer": {
-          "httpServers": [{ "listenAddresses": [":{{ .Values.scheduler.metricsPort }}"] }],
+          "httpServers": [{
+            "listenAddresses": [":{{ .Values.scheduler.metricsPort }}"],
+            "authenticationPolicy": { "allow": {} }
+          }],
           "enablePrometheus": true
         }
       }
