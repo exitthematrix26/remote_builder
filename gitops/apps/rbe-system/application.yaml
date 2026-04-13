@@ -40,6 +40,14 @@ spec:
     path: charts/buildbarn
 
     helm:
+      # releaseName must match the instance label on existing resources.
+      # Without this, ArgoCD uses the Application name ("rbe-system") as the
+      # Helm release name, which sets app.kubernetes.io/instance=rbe-system on
+      # pods.  The Services were originally created with releaseName=bb (manual
+      # helm install), giving instance=bb in their selectors — causing endpoints
+      # to be empty and the metrics port unreachable.  Setting releaseName here
+      # ensures all rendered labels are consistent: instance=rbe-system.
+      releaseName: rbe-system
       valuesObject:
         # ── MinIO connection ─────────────────────────────────────────────────
         # Buildbarn storage connects to MinIO for CAS and AC blobs.
