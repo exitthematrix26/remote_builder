@@ -64,5 +64,9 @@ data:
       "killOperationsAuthorizer":{ "allow": {} },
       "synchronizeAuthorizer":   { "allow": {} },
       "maximumMessageSizeBytes": 268435456,
-      "platformQueueWithNoWorkersTimeout": "900s"
+      "platformQueueWithNoWorkersTimeout": "900s",
+      "diagnosticsHttpServer": {
+        "listenAddress": ":{{ .Values.scheduler.metricsPort }}",
+        "enablePrometheus": true
+      }
     }

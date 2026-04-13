@@ -28,3 +28,9 @@ spec:
       port: {{ .Values.scheduler.workerPort }}
       targetPort: grpc-worker
       protocol: TCP
+    # Prometheus /metrics + /healthz — scraped by the ServiceMonitor below.
+    # KEDA Prometheus trigger queries this via the Prometheus server.
+    - name: metrics
+      port: {{ .Values.scheduler.metricsPort }}
+      targetPort: metrics
+      protocol: TCP

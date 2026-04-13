@@ -39,11 +39,19 @@ spec:
         - setWeight: 25
         - pause:
             duration: 60s
+        # Phase 5: AnalysisRun queries Prometheus for Execute RPC error rate.
+        # If (errors/total) > 5% over a 90s window, rollout aborts automatically.
+        # Requires kube-prometheus-stack (monitoring namespace) to be healthy.
+        - analysis:
+            templates:
+              - templateName: bb-worker-health
         - setWeight: 50
         - pause:
             duration: 60s
-        # Full promotion (100%) happens automatically after the last pause.
-        # In Phase 4: add analysis steps here using Prometheus worker error rate.
+        - analysis:
+            templates:
+              - templateName: bb-worker-health
+        # Full promotion (100%) happens automatically after the final analysis.
 
   template:
     metadata:
