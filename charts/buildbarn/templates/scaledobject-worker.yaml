@@ -74,24 +74,25 @@ spec:
 
   # ── Triggers ────────────────────────────────────────────────────────────────
   triggers:
-    # ── Trigger 1: Prometheus — Execute RPC rate ─────────────────────────────
-    # Primary trigger: scales on the actual rate of incoming build actions.
-    # desiredReplicas = ceil(metric_value / threshold)
-    # threshold=2 means: add a worker for every 2 Execute RPCs/second sustained.
-    # Each worker handles concurrency=2 parallel actions → 1 RPC/s per thread.
+    # ── Trigger 1: Prometheus — Buildbarn queued tasks ───────────────────────
+    # Primary trigger: scales on the ACTUAL queue depth inside bb-scheduler.
     #
-    # PromQL breakdown:
-    #   grpc_server_started_total — counter incremented per Execute RPC call
-    #   rate([1m]) — per-second rate averaged over the last minute
-    #   grpc_method="Execute" — only count build action dispatches, not CAS/AC calls
+    # buildbarn_builder_in_memory_build_queue_tasks_scheduled_total
+    #   {assignment="Queue"} — tasks waiting for a worker (not yet assigned)
+    #
+    # We use increase([2m]) to get the number of tasks enqueued in the last
+    # 2 minutes.  This is a leading indicator: tasks hit "Queue" before any
+    # worker picks them up, so KEDA sees demand before workers are saturated.
+    #
+    # threshold=2: add one worker for every 2 tasks queued in the window.
+    # With concurrency=2 per pod, 2 queued tasks = 1 full pod worth of backlog.
     - type: prometheus
       metadata:
         serverAddress: http://prometheus-kube-prometheus-prometheus.monitoring:9090
-        metricName: bb_scheduler_execute_rpc_rate
+        metricName: bb_scheduler_queued_tasks
         query: |
-          sum(rate(grpc_server_started_total{namespace="rbe-system",grpc_service="build.bazel.remote.execution.v2.Execution",grpc_method="Execute"}[1m]))
+          sum(increase(buildbarn_builder_in_memory_build_queue_tasks_scheduled_total{namespace="rbe-system",assignment="Queue"}[2m]))
         threshold: "2"
-        # ignoreNullValues: don't scale down just because Prometheus has no data yet
         ignoreNullValues: "true"
 
     # ── Trigger 2: CPU utilisation ────────────────────────────────────────────
