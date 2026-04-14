@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bb-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbe-tenant.labels" . | nindent 4 }}
+    {{- include "rbe-tenant.scheduler.selectorLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "rbe-tenant.scheduler.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc-client
+      port: {{ .Values.scheduler.clientPort }}
+      targetPort: grpc-client
+      protocol: TCP
+    - name: grpc-worker
+      port: {{ .Values.scheduler.workerPort }}
+      targetPort: grpc-worker
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.scheduler.metricsPort }}
+      targetPort: metrics
+      protocol: TCP

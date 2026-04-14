@@ -1,0 +1,18 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# tenant-acme — per-tenant overrides for the rbe-tenant chart
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Worker sizing: acme has moderate build load ──────────────────────────────
+worker:
+  replicas: 2
+  minReplicas: 1
+  maxReplicas: 4
+  concurrency: 2
+
+# ── Quota: conservative — shared lab node ────────────────────────────────────
+quota:
+  pods: "15"
+  requestsCpu: "1"
+  requestsMemory: 2Gi
+  limitsCpu: "4"
+  limitsMemory: 4Gi

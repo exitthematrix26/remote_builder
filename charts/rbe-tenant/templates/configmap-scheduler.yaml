@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bb-scheduler-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbe-tenant.labels" . | nindent 4 }}
+data:
+  scheduler.json: |
+    {
+      "clientGrpcServers": [{
+        "listenAddresses": [":{{ .Values.scheduler.clientPort }}"],
+        "authenticationPolicy": { "allow": {} }
+      }],
+      "workerGrpcServers": [{
+        "listenAddresses": [":{{ .Values.scheduler.workerPort }}"],
+        "authenticationPolicy": { "allow": {} }
+      }],
+      "contentAddressableStorage": {
+        "grpc": {
+          "client": {
+            "address": "bb-storage:{{ .Values.storage.port }}"
+          }
+        }
+      },
+      "actionRouter": {
+        "simple": {
+          "platformKeyExtractor": { "action": {} },
+          "invocationKeyExtractors": [
+            { "correlatedInvocationsId": {} },
+            { "toolInvocationId": {} }
+          ],
+          "initialSizeClassAnalyzer": {
+            "defaultExecutionTimeout": "1800s",
+            "maximumExecutionTimeout": "7200s"
+          }
+        }
+      },
+      "executeAuthorizer":       { "allow": {} },
+      "modifyDrainsAuthorizer":  { "allow": {} },
+      "killOperationsAuthorizer":{ "allow": {} },
+      "synchronizeAuthorizer":   { "allow": {} },
+      "maximumMessageSizeBytes": 268435456,
+      "platformQueueWithNoWorkersTimeout": "900s",
+      "global": {
+        "diagnosticsHttpServer": {
+          "httpServers": [{
+            "listenAddresses": [":{{ .Values.scheduler.metricsPort }}"],
+            "authenticationPolicy": { "allow": {} }
+          }],
+          "enablePrometheus": true
+        }
+      }
+    }

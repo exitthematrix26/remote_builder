@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: bb-worker-health
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbe-tenant.labels" . | nindent 4 }}
+spec:
+  metrics:
+    - name: worker-error-rate
+      interval: 30s
+      count: 3
+      failureLimit: 1
+      successCondition: result < 0.05
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring:9090
+          query: |
+            sum(rate(grpc_server_handled_total{
+              namespace="{{ .Release.Namespace }}",
+              grpc_service="build.bazel.remote.execution.v2.Execution",
+              grpc_code!="OK"
+            }[2m]))
+            /
+            sum(rate(grpc_server_handled_total{
+              namespace="{{ .Release.Namespace }}",
+              grpc_service="build.bazel.remote.execution.v2.Execution"
+            }[2m]))

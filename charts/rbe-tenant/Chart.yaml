@@ -1,0 +1,10 @@
+apiVersion: v2
+name: rbe-tenant
+description: >
+  Per-tenant Buildbarn RBE stack. One Helm release per tenant namespace.
+  Wraps bb-storage, bb-scheduler, and bb-worker (Argo Rollout) with
+  ResourceQuota and NetworkPolicy for hard multi-tenant isolation.
+  Deploy via the rbe-tenants ApplicationSet — one values.yaml per tenant.
+type: application
+version: 0.1.0
+appVersion: "latest"

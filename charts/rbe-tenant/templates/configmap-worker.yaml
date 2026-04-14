@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bb-worker-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbe-tenant.labels" . | nindent 4 }}
+data:
+  worker.json: |
+    {
+      "blobstore": {
+        "contentAddressableStorage": {
+          "grpc": {
+            "client": {
+              "address": "bb-storage:{{ .Values.storage.port }}"
+            }
+          }
+        },
+        "actionCache": {
+          "grpc": {
+            "client": {
+              "address": "bb-storage:{{ .Values.storage.port }}"
+            }
+          }
+        }
+      },
+      "maximumMessageSizeBytes": 268435456,
+      "scheduler": {
+        "address": "bb-scheduler:{{ .Values.scheduler.workerPort }}"
+      },
+      "inputDownloadConcurrency": 4,
+      "outputUploadConcurrency": 4,
+      "buildDirectories": [{
+        "native": {
+          "buildDirectoryPath": "/worker/build",
+          "cacheDirectoryPath": "/worker/cache",
+          "maximumCacheFileCount": 10000,
+          "maximumCacheSizeBytes": 536870912,
+          "cacheReplacementPolicy": "LEAST_RECENTLY_USED"
+        },
+        "runners": [{
+          "endpoint": {
+            "address": "unix:///worker/runner"
+          },
+          "concurrency": {{ .Values.worker.concurrency }},
+          "workerId": {
+            "pod": "__POD_NAME__"
+          },
+          "platform": {
+            "properties": [
+              { "name": "ISA",       "value": "{{ .Values.worker.platform.arch }}" },
+              { "name": "OSFamily",  "value": "{{ .Values.worker.platform.os }}"   }
+            ]
+          }
+        }]
+      }]
+    }
+
+  runner.json: |
+    {
+      "grpcServers": [{
+        "listenPaths": ["/worker/runner"],
+        "authenticationPolicy": { "allow": {} }
+      }],
+      "buildDirectoryPath": "/worker/build"
+    }

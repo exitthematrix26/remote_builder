@@ -1,0 +1,79 @@
+{{- if .Values.networkPolicy.enabled }}
+# ─────────────────────────────────────────────────────────────────────────────
+# NetworkPolicy — tenant namespace isolation
+#
+# Tenants are isolated from each other:
+#   - bb-storage, bb-scheduler, bb-worker may only talk to each other within
+#     the same namespace.
+#   - bb-scheduler accepts inbound gRPC from any namespace (Bazel clients) on
+#     the clientPort — this allows cross-namespace builds if needed.
+#   - Prometheus in the monitoring namespace can scrape bb-scheduler metrics.
+#   - Workers reach out to KEDA/Prometheus in monitoring namespace.
+#   - All other cross-namespace traffic is denied.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── bb-storage: only accept traffic from within the same namespace ────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-tenant-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbe-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "rbe-tenant.storage.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}   # any pod in this namespace
+
+---
+# ── bb-scheduler: accept from same namespace + Bazel clients (any ns) ─────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-scheduler-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbe-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "rbe-tenant.scheduler.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Same-namespace traffic (workers registering, storage checks)
+    - from:
+        - podSelector: {}
+    # Prometheus scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: {{ .Values.scheduler.metricsPort }}
+          protocol: TCP
+
+---
+# ── bb-worker: only accept traffic from within the same namespace ─────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-tenant-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbe-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "rbe-tenant.worker.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+{{- end }}

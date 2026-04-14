@@ -1,0 +1,18 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# tenant-initech — per-tenant overrides for the rbe-tenant chart
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Worker sizing: initech has heavier CI load ────────────────────────────────
+worker:
+  replicas: 2
+  minReplicas: 2
+  maxReplicas: 6
+  concurrency: 2
+
+# ── Quota: slightly larger allocation ────────────────────────────────────────
+quota:
+  pods: "20"
+  requestsCpu: "2"
+  requestsMemory: 4Gi
+  limitsCpu: "6"
+  limitsMemory: 6Gi
