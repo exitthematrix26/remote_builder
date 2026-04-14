@@ -35,6 +35,13 @@ spec:
               mkdir -p /storage/ac/persistent_state
               echo "Storage directories created:"
               find /storage -type d
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
           volumeMounts:
             - name: storage
               mountPath: /storage
