@@ -1,0 +1,44 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: bb-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbe-tenant.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: bb-worker
+
+  minReplicaCount: {{ .Values.worker.minReplicas }}
+  maxReplicaCount: {{ .Values.worker.maxReplicas }}
+
+  pollingInterval: 15
+  cooldownPeriod:  60
+
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 2
+              periodSeconds: 30
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-kube-prometheus-prometheus.monitoring:9090
+        metricName: bb_scheduler_execute_rpc_rate
+        query: |
+          sum(increase(grpc_server_started_total{namespace="{{ .Release.Namespace }}",job="bb-scheduler",grpc_method="Execute"}[2m]))
+        threshold: "4"
+        ignoreNullValues: "true"

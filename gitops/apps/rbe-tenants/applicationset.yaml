@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# rbe-tenants ApplicationSet
+#
+# One Argo CD Application per directory under gitops/tenants/.
+# Each directory must contain a values.yaml that overrides the rbe-tenant chart.
+#
+# Naming convention:
+#   directory name  = Release.Name  = namespace name
+#   e.g. gitops/tenants/tenant-acme → Application "tenant-acme" → namespace "tenant-acme"
+#
+# Multi-source pattern:
+#   source[0]: the rbe-tenant Helm chart (charts/rbe-tenant)
+#   source[1]: (ref: values) the gitops repo — provides per-tenant values files
+#   valueFiles in source[0] reference $values/gitops/tenants/<name>/values.yaml
+#
+# Sync wave 3: runs after rbe-system (wave 2) and before any tenant-specific
+# add-ons that might depend on the RBE stack being available.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: rbe-tenants
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/part-of: rbe-lab
+    app.kubernetes.io/component: rbe-tenants
+spec:
+  # ── Generator: one Application per gitops/tenants/* directory ───────────────
+  generators:
+    - git:
+        repoURL: https://github.com/exitthematrix26/remote_builder
+        revision: HEAD
+        directories:
+          - path: gitops/tenants/*
+
+  # ── Template: rendered once per matching directory ───────────────────────────
+  template:
+    metadata:
+      name: "{{`{{path.basename}}`}}"
+      namespace: argocd
+      annotations:
+        argocd.argoproj.io/sync-wave: "3"
+      labels:
+        app.kubernetes.io/part-of: rbe-lab
+        app.kubernetes.io/component: rbe-tenant
+
+    spec:
+      project: default
+
+      # Multi-source: chart + values from same repo
+      sources:
+        # Source 0: the rbe-tenant Helm chart
+        - repoURL: https://github.com/exitthematrix26/remote_builder
+          targetRevision: HEAD
+          path: charts/rbe-tenant
+          helm:
+            releaseName: "{{`{{path.basename}}`}}"
+            valueFiles:
+              - "$values/gitops/tenants/{{`{{path.basename}}`}}/values.yaml"
+
+        # Source 1: values reference — provides the $values variable above
+        - repoURL: https://github.com/exitthematrix26/remote_builder
+          targetRevision: HEAD
+          ref: values
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{`{{path.basename}}`}}"
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

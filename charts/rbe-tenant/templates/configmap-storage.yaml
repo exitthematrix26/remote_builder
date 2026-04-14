@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bb-storage-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbe-tenant.labels" . | nindent 4 }}
+data:
+  storage.json: |
+    {
+      "grpcServers": [{
+        "listenAddresses": [":{{ .Values.storage.port }}"],
+        "authenticationPolicy": { "allow": {} }
+      }],
+      "maximumMessageSizeBytes": 268435456,
+      "contentAddressableStorage": {
+        "backend": {
+          "local": {
+            "keyLocationMapOnBlockDevice": {
+              "file": {
+                "path": "/storage/cas/key_location_map",
+                "sizeBytes": {{ .Values.storage.cas.keyLocationMapSize | int64 }}
+              }
+            },
+            "keyLocationMapMaximumGetAttempts": 16,
+            "keyLocationMapMaximumPutAttempts": 64,
+            "oldBlocks": 2,
+            "currentBlocks": 8,
+            "newBlocks": 1,
+            "blocksOnBlockDevice": {
+              "source": {
+                "file": {
+                  "path": "/storage/cas/blocks",
+                  "sizeBytes": {{ .Values.storage.cas.blocksSize | int64 }}
+                }
+              },
+              "spareBlocks": 1
+            },
+            "persistent": {
+              "stateDirectoryPath": "/storage/cas/persistent_state",
+              "minimumEpochInterval": "300s"
+            }
+          }
+        },
+        "getAuthorizer":          { "allow": {} },
+        "putAuthorizer":          { "allow": {} },
+        "findMissingAuthorizer":  { "allow": {} }
+      },
+      "actionCache": {
+        "backend": {
+          "local": {
+            "keyLocationMapOnBlockDevice": {
+              "file": {
+                "path": "/storage/ac/key_location_map",
+                "sizeBytes": {{ .Values.storage.ac.keyLocationMapSize | int64 }}
+              }
+            },
+            "keyLocationMapMaximumGetAttempts": 16,
+            "keyLocationMapMaximumPutAttempts": 64,
+            "oldBlocks": 2,
+            "currentBlocks": 8,
+            "newBlocks": 1,
+            "blocksOnBlockDevice": {
+              "source": {
+                "file": {
+                  "path": "/storage/ac/blocks",
+                  "sizeBytes": {{ .Values.storage.ac.blocksSize | int64 }}
+                }
+              },
+              "spareBlocks": 1
+            },
+            "persistent": {
+              "stateDirectoryPath": "/storage/ac/persistent_state",
+              "minimumEpochInterval": "300s"
+            }
+          }
+        },
+        "getAuthorizer": { "allow": {} },
+        "putAuthorizer": { "allow": {} }
+      }
+    }

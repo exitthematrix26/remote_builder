@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bb-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbe-tenant.labels" . | nindent 4 }}
+    {{- include "rbe-tenant.scheduler.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.scheduler.replicas }}
+  selector:
+    matchLabels:
+      {{- include "rbe-tenant.scheduler.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rbe-tenant.scheduler.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-scheduler.yaml") . | sha256sum }}
+    spec:
+      nodeSelector:
+        {{- toYaml .Values.scheduler.nodeSelector | nindent 8 }}
+
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+
+      containers:
+        - name: bb-scheduler
+          image: "{{ .Values.image.scheduler.repository }}:{{ .Values.image.scheduler.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["/config/scheduler.json"]
+
+          ports:
+            - name: grpc-client
+              containerPort: {{ .Values.scheduler.clientPort }}
+              protocol: TCP
+            - name: grpc-worker
+              containerPort: {{ .Values.scheduler.workerPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.scheduler.metricsPort }}
+              protocol: TCP
+
+          readinessProbe:
+            grpc:
+              port: {{ .Values.scheduler.clientPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+
+          livenessProbe:
+            grpc:
+              port: {{ .Values.scheduler.clientPort }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+          resources:
+            {{- toYaml .Values.scheduler.resources | nindent 12 }}
+
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+
+      volumes:
+        - name: config
+          configMap:
+            name: bb-scheduler-config

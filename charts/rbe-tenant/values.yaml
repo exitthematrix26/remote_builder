@@ -1,0 +1,97 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# rbe-tenant Helm Chart — Default Values
+# ─────────────────────────────────────────────────────────────────────────────
+# Override per tenant in gitops/tenants/<tenant-name>/values.yaml
+# .Release.Name  = tenant name (e.g. tenant-acme, tenant-initech)
+# .Release.Namespace = tenant namespace (same as Release.Name via ApplicationSet)
+
+# ── Container images ──────────────────────────────────────────────────────────
+image:
+  storage:
+    repository: ghcr.io/buildbarn/bb-storage
+    tag: "20260326T151518Z-d0c6f26"
+  scheduler:
+    repository: ghcr.io/buildbarn/bb-scheduler
+    tag: "20260408T084910Z-570a4d4"
+  worker:
+    repository: ghcr.io/buildbarn/bb-worker
+    tag: "20260408T084910Z-570a4d4"
+  runnerInstaller:
+    repository: ghcr.io/buildbarn/bb-runner-installer
+    tag: "20260408T084910Z-570a4d4"
+  pullPolicy: IfNotPresent
+
+# ── bb-storage ────────────────────────────────────────────────────────────────
+storage:
+  replicas: 1
+  port: 8980
+  nodeSelector:
+    pool: infra
+  cas:
+    keyLocationMapSize: 16777216   # 16MB
+    blocksSize: 536870912          # 512MB — conservative per tenant
+  ac:
+    keyLocationMapSize: 1048576    # 1MB
+    blocksSize: 67108864           # 64MB
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ── bb-scheduler ──────────────────────────────────────────────────────────────
+scheduler:
+  replicas: 1
+  clientPort: 8981
+  workerPort: 8982
+  metricsPort: 8083
+  nodeSelector:
+    pool: infra
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# ── bb-worker ─────────────────────────────────────────────────────────────────
+worker:
+  replicas: 2
+  minReplicas: 1
+  maxReplicas: 4
+  concurrency: 2
+  platform:
+    os: Linux
+    arch: x86_64
+  nodeSelector:
+    pool: rbe-workers
+  tolerations:
+    - key: dedicated
+      value: rbe-worker
+      effect: NoSchedule
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+# ── ResourceQuota — hard limits per tenant namespace ─────────────────────────
+quota:
+  pods: "20"
+  requestsCpu: "2"
+  requestsMemory: 4Gi
+  limitsCpu: "8"
+  limitsMemory: 8Gi
+
+# ── NetworkPolicy — isolate tenant traffic ───────────────────────────────────
+networkPolicy:
+  enabled: true
+
+# ── imagePullSecrets ──────────────────────────────────────────────────────────
+imagePullSecrets:
+  - name: ghcr-pull-secret
