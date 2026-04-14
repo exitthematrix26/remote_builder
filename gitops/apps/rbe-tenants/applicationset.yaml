@@ -38,7 +38,7 @@ spec:
   # ── Template: rendered once per matching directory ───────────────────────────
   template:
     metadata:
-      name: "{{`{{path.basename}}`}}"
+      name: "{{path.basename}}"
       namespace: argocd
       annotations:
         argocd.argoproj.io/sync-wave: "3"
@@ -56,9 +56,9 @@ spec:
           targetRevision: HEAD
           path: charts/rbe-tenant
           helm:
-            releaseName: "{{`{{path.basename}}`}}"
+            releaseName: "{{path.basename}}"
             valueFiles:
-              - "$values/gitops/tenants/{{`{{path.basename}}`}}/values.yaml"
+              - "$values/gitops/tenants/{{path.basename}}/values.yaml"
 
         # Source 1: values reference — provides the $values variable above
         - repoURL: https://github.com/exitthematrix26/remote_builder
@@ -67,7 +67,7 @@ spec:
 
       destination:
         server: https://kubernetes.default.svc
-        namespace: "{{`{{path.basename}}`}}"
+        namespace: "{{path.basename}}"
 
       syncPolicy:
         automated:
